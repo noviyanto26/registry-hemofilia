@@ -1,0 +1,27 @@
+﻿# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment and secrets
+.env
+secrets.toml
+*.db
+*.sqlite
+*.log
+
+# Streamlit and VSCode configs
+.streamlit/
+.vscode/
+.idea/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Excel and temporary data
+*.xlsx
+*.xls
+*.csv
+*.bak
