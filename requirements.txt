@@ -6,3 +6,6 @@ xlsxwriter>=3.2
 matplotlib>=3.8
 streamlit-option-menu>=0.3
 openpyxl
+streamlit-option-menu
+passlib
+bcrypt
