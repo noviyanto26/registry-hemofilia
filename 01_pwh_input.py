@@ -358,8 +358,19 @@ except Exception as e:
 # Helper eksekusi
 # ------------------------------------------------------------------------------
 def run_df(query: str, params: dict | None = None) -> pd.DataFrame:
-    with engine.begin() as conn:
-        return pd.read_sql(text(query), conn, params=params or {})
+    # Tambahkan default parameter untuk filter cabang
+    if params is None:
+        params = {"branch": st.session_state.get("user_branch", "ALL")}
+    else:
+        params.setdefault("branch", st.session_state.get("user_branch", "ALL"))
+
+    try:
+        with DB_ENGINE.connect() as conn:
+            df = pd.read_sql(text(query), conn, params=params)
+        return df
+    except Exception as e:
+        st.error(f"Gagal menjalankan query: {e}")
+        return pd.DataFrame()
 
 def run_exec(sql: str, params: dict | None = None):
     with engine.begin() as conn:
