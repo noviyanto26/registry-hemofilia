@@ -1,7 +1,10 @@
-# main.py (gabungan)
+# main.py (gabungan - Versi Database Auth)
 import runpy
+import os  # <-- Tambahan
 import streamlit as st
 from streamlit_option_menu import option_menu
+from sqlalchemy import create_engine, text, Engine  # <-- Tambahan
+from passlib.context import CryptContext  # <-- Tambahan
 
 # -----------------------------
 # Konfigurasi halaman
@@ -14,20 +17,49 @@ st.set_page_config(
 )
 
 # -----------------------------
-# Auth sederhana via st.secrets
+# KONEKSI DATABASE (Diambil dari file rekap)
+# -----------------------------
+def _resolve_db_url() -> str:
+    """Mencari DATABASE_URL dari st.secrets atau environment variables."""
+    try:
+        sec = st.secrets.get("DATABASE_URL", "")
+        if sec: return sec
+    except Exception:
+        pass
+    env = os.environ.get("DATABASE_URL")
+    if env: return env
+    
+    st.error('DATABASE_URL tidak ditemukan. Mohon atur di `.streamlit/secrets.toml` atau sebagai environment variable.')
+    st.code('DATABASE_URL = "postgresql://USER:PASSWORD@HOST:PORT/DATABASE"')
+    return None
+
+@st.cache_resource(show_spinner="Menghubungkan ke database...")
+def get_engine(dsn: str) -> Engine:
+    """Membuat dan menyimpan koneksi database engine."""
+    if not dsn:
+        st.stop()
+    try:
+        engine = create_engine(dsn, pool_pre_ping=True)
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return engine
+    except Exception as e:
+        st.error(f"Gagal terhubung ke database: {e}")
+        st.stop()
+
+# --- Inisialisasi Engine & Hashing ---
+DB_URL = _resolve_db_url()
+DB_ENGINE = get_engine(DB_URL)
+# Konteks untuk hashing password
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# -----------------------------
+# Auth via Database
 # -----------------------------
 def check_password() -> bool:
-    # Pastikan secrets tersedia
-    if "credentials" not in st.secrets or "usernames" not in st.secrets["credentials"]:
-        st.error("❌ Konfigurasi kredensial di secrets.toml tidak ditemukan.")
-        st.caption(
-            "Tambahkan di Secrets (Streamlit Cloud) / .streamlit/secrets.toml (lokal):\n"
-            "[credentials]\n  [credentials.usernames]\n    admin = \"passwordAnda\""
-        )
-        return False
-
-    users = st.secrets["credentials"]["usernames"]  # dict: {username: password}
-
+    """
+    Validasi login user dari tabel pwh.users di database.
+    """
     # Sudah login di session?
     if st.session_state.get("auth_ok", False):
         return True
@@ -40,14 +72,36 @@ def check_password() -> bool:
         login = st.button("Masuk")
 
     if login:
-        expected_pw = users.get(username)
-        if expected_pw and password == str(expected_pw):
-            st.session_state.auth_ok = True
-            st.session_state.username = username
-            st.success(f"Selamat datang, **{username}**!")
-            return True
-        else:
-            st.error("Username atau password salah.")
+        if not username or not password:
+            st.error("Username dan Password wajib diisi.")
+            return False
+
+        try:
+            with DB_ENGINE.connect() as conn:
+                # 1. Cari user di database
+                query = text("SELECT username, hashed_password, cabang FROM pwh.users WHERE username = :user")
+                result = conn.execute(query, {"user": username})
+                user_data = result.mappings().fetchone() # Ambil data sbg dictionary
+
+            if not user_data:
+                st.error("Username atau password salah.")
+                return False
+
+            # 2. Verifikasi hash password
+            if pwd_context.verify(password, user_data['hashed_password']):
+                # 3. Sukses! Simpan data ke session
+                st.session_state.auth_ok = True
+                st.session_state.username = user_data['username']
+                st.session_state.user_branch = user_data['cabang'] # Ini adalah kuncinya
+                
+                st.success(f"Selamat datang, **{user_data['username']}**!")
+                return True
+            else:
+                st.error("Username atau password salah.")
+                return False
+
+        except Exception as e:
+            st.error(f"Terjadi error saat login: {e}")
             return False
 
     # Belum login → hentikan render halaman
@@ -65,10 +119,7 @@ MENU_ITEMS = {
     "🏥 RS Perawatan Hemofilia": "04_rs_hemofilia.py",
     "📚 Rekap Pendidikan & Pekerjaan": "05_rekap_pend_pekerjaan.py",
     "🗺️ Distribusi Pasien per Kota (Berdasarkan RS Penangan)": "06_distribusi_pasien.py",
-    # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    # Tambahan baru: Rekap per Provinsi (mengarah ke file 07_rekap_propinsi.py)
     "🗺️ Rekapitulasi per Provinsi (Berdasarkan Domisili)": "07_rekap_propinsi.py",
-    # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 }
 
 ICONS = [
@@ -78,7 +129,7 @@ ICONS = [
     "hospital",        # 🏥
     "book",            # 📚
     "map",             # 🗺️ Kota
-    "geo-alt",         # 🗺️ Provinsi (ikon baru untuk item yang ditambahkan)
+    "geo-alt",         # 🗺️ Provinsi
 ]
 
 # -----------------------------
@@ -96,7 +147,7 @@ def main():
         selection = option_menu(
             menu_title="",  # minimalis
             options=list(MENU_ITEMS.keys()),
-            icons=ICONS[:len(MENU_ITEMS)],  # pastikan panjang sesuai
+            icons=ICONS[:len(MENU_ITEMS)],
             default_index=0,
             orientation="vertical",
         )
@@ -104,7 +155,11 @@ def main():
         st.divider()
         col1, col2 = st.columns([1, 1])
         with col1:
-            st.caption(f"👤 {st.session_state.get('username', '')}")
+            # Tampilkan juga cabang user
+            branch_info = st.session_state.get('user_branch', 'N/A')
+            if branch_info == "ALL":
+                branch_info = "Admin (Semua Cabang)"
+            st.caption(f"👤 {st.session_state.get('username', '')}\n🏢 {branch_info}")
         with col2:
             if st.button("Logout", use_container_width=True):
                 st.session_state.clear()
