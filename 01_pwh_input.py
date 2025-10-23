@@ -15,7 +15,7 @@ st.set_page_config(page_title="PWH Input", page_icon="🩸", layout="wide")
 # ------------------------------------------------------------------------------
 def build_excel_bytes() -> bytes:
     # Ambil semua dataset
-    df_patients = run_df("""
+    df_patients = run_df(add_branch_filter("""
         SELECT
     p.id,
     p.full_name,
@@ -44,38 +44,38 @@ WHERE (:branch = 'ALL' OR p.cabang = :branch)
 ORDER BY p.id
 
     """)
-    df_diag = run_df("""
+    df_diag = run_df(add_branch_filter("""
         SELECT d.id, d.patient_id, p.full_name, d.hemo_type, d.severity, d.diagnosed_on, d.source
         FROM pwh.hemo_diagnoses d JOIN pwh.patients p ON p.id = d.patient_id
         ORDER BY d.patient_id, d.id
     """)
-    df_inh = run_df("""
+    df_inh = run_df(add_branch_filter("""
         SELECT i.id, i.patient_id, p.full_name, i.factor, i.titer_bu, i.measured_on, i.lab
         FROM pwh.hemo_inhibitors i JOIN pwh.patients p ON p.id = i.patient_id
         ORDER BY i.patient_id, i.measured_on NULLS LAST, i.id
     """)
-    df_virus = run_df("""
+    df_virus = run_df(add_branch_filter("""
         SELECT v.id, v.patient_id, p.full_name, v.test_type, v.result, v.tested_on, v.lab
         FROM pwh.virus_tests v JOIN pwh.patients p ON p.id = v.patient_id
         ORDER BY v.patient_id, v.tested_on NULLS LAST, v.id
     """)
-    df_hospital = run_df("""
+    df_hospital = run_df(add_branch_filter("""
         SELECT th.id, th.patient_id, p.full_name, th.name_hospital, th.city_hospital, th.province_hospital,
                th.date_of_visit, th.doctor_in_charge, th.treatment_type, th.care_services, th.frequency, th.dose, th.product, th.merk
         FROM pwh.treatment_hospital th JOIN pwh.patients p ON p.id = th.patient_id
         ORDER BY th.patient_id, th.id
     """)
-    df_death = run_df("""
+    df_death = run_df(add_branch_filter("""
         SELECT d.id, d.patient_id, p.full_name, d.cause_of_death, d.year_of_death
         FROM pwh.death d JOIN pwh.patients p ON p.id = d.patient_id
         ORDER BY d.patient_id, d.id
     """)
-    df_contacts = run_df("""
+    df_contacts = run_df(add_branch_filter("""
         SELECT c.id, c.patient_id, p.full_name, c.relation, c.name, c.phone, c.is_primary
         FROM pwh.contacts c JOIN pwh.patients p ON p.id = c.patient_id
         ORDER BY c.patient_id, c.id
     """)
-    df_summary = run_df("""SELECT * FROM pwh.patient_summary ORDER BY id""")
+    df_summary = run_df(add_branch_filter("""SELECT * FROM pwh.patient_summary ORDER BY id""")
     
     # --- FIX: Hapus Timezone dari Datetime Columns ---
     # Excel (via xlsxwriter) tidak mendukung datetime yang 'timezone-aware' (misal: UTC)
@@ -359,20 +359,8 @@ USER_BRANCH = st.session_state.get("user_branch", "ALL")
 # Helper eksekusi
 # ------------------------------------------------------------------------------
 def run_df(query: str, params: dict | None = None) -> pd.DataFrame:
-    # Pastikan parameter branch selalu ada
-    branch_val = st.session_state.get("user_branch", "ALL") if "user_branch" in st.session_state else "ALL"
-    if params is None:
-        params = {"branch": branch_val}
-    else:
-        params.setdefault("branch", branch_val)
-
-    try:
-        with engine.begin() as conn:
-            df = pd.read_sql(text(query), conn, params=params)
-        return df
-    except Exception as e:
-        st.error(f"Gagal menjalankan query: {e}")
-        return pd.DataFrame()
+    with engine.begin() as conn:
+        return pd.read_sql(text(query), conn, params=params or {})
 
 def run_exec(sql: str, params: dict | None = None):
     with engine.begin() as conn:
@@ -1048,7 +1036,7 @@ with tab_pat:
             clear_session_state('patient_matches')
             st.rerun()
 
-    dfp = run_df("""
+    dfp = run_df(add_branch_filter("""
 SELECT
     p.id,
     p.full_name,
