@@ -358,14 +358,19 @@ except Exception as e:
 # Helper eksekusi
 # ------------------------------------------------------------------------------
 def run_df(query: str, params: dict | None = None) -> pd.DataFrame:
-    # Tambahkan default parameter untuk filter cabang
+    # Pastikan koneksi database aktif
+    if "engine" not in globals():
+        st.error("Koneksi database belum diinisialisasi.")
+        return pd.DataFrame()
+
+    # Tambahkan parameter default untuk cabang login
     if params is None:
         params = {"branch": st.session_state.get("user_branch", "ALL")}
     else:
         params.setdefault("branch", st.session_state.get("user_branch", "ALL"))
 
     try:
-        with DB_ENGINE.connect() as conn:
+        with engine.begin() as conn:
             df = pd.read_sql(text(query), conn, params=params)
         return df
     except Exception as e:
