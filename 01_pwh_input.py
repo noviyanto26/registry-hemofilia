@@ -373,6 +373,26 @@ USER_BRANCH = st.session_state.get("user_branch", "ALL")
 # Helper eksekusi
 # ------------------------------------------------------------------------------
 def run_df(query: str, params: dict | None = None) -> pd.DataFrame:
+# ============================================================
+# FUNGSI FILTER CABANG OTOMATIS & PEMBUNGKUS QUERY AMAN
+# ============================================================
+def add_branch_filter(query: str) -> str:
+    """Menambahkan filter cabang ke query yang berisi pwh.patients"""
+    if "pwh.patients" in query and "WHERE" not in query:
+        return query + "\nWHERE (:branch = 'ALL' OR p.cabang = :branch)"
+    elif "pwh.patients" in query and "WHERE" in query:
+        return query.replace("WHERE", "WHERE (:branch = 'ALL' OR p.cabang = :branch) AND ")
+    return query
+
+def safe_run_df(query: str, params: dict | None = None) -> pd.DataFrame:
+    """Menjalankan query dengan filter cabang otomatis"""
+    branch = st.session_state.get("user_branch", "ALL")
+    if params is None:
+        params = {"branch": branch}
+    else:
+        params.setdefault("branch", branch)
+    return run_df(add_branch_filter(query), params)
+
     with engine.begin() as conn:
         return pd.read_sql(text(query), conn, params=params or {})
 
