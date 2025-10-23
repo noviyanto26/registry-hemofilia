@@ -1050,7 +1050,7 @@ with tab_pat:
             clear_session_state('patient_matches')
             st.rerun()
 
-    dfp = run_df(add_branch_filter("""
+    dfp = safe_run_df("""
 SELECT
     p.id,
     p.full_name,
