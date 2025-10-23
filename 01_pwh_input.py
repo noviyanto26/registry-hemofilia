@@ -332,6 +332,36 @@ def _resolve_db_url() -> str:
     st.error('DATABASE_URL tidak ditemukan. Isi `.streamlit/secrets.toml` dengan format:\n''DATABASE_URL = "postgresql+psycopg2://USER:PASSWORD@127.0.0.1:5432/pwhdb"')
     st.stop()
 # ------------------------------------------------------------------------------
+# SINKRONISASI DENGAN LOGIN MAIN.PY
+# ------------------------------------------------------------------------------
+if "auth_ok" not in st.session_state:
+    st.warning("Silakan login melalui halaman utama terlebih dahulu.")
+    st.stop()
+
+user_branch = st.session_state.get("user_branch", None)
+
+def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
+    """Menjalankan query dengan filter cabang otomatis sesuai user login."""
+    if user_branch and user_branch != "ALL":
+        for tbl in [
+            "pwh.patients",
+            "pwh.hemo_diagnoses",
+            "pwh.hemo_inhibitors",
+            "pwh.virus_tests",
+            "pwh.treatment_hospital",
+            "pwh.death",
+            "pwh.contacts"
+        ]:
+            if f"FROM {tbl}" in query and "WHERE" not in query:
+                query = query.replace(f"FROM {tbl}", f"FROM {tbl} WHERE cabang = :branch")
+            elif f"FROM {tbl}" in query and "WHERE" in query:
+                query = query.replace("WHERE", "WHERE cabang = :branch AND ")
+        params = params or {}
+        params["branch"] = user_branch
+    with engine.begin() as conn:
+        return pd.read_sql(text(query), conn, params=params or {})
+
+# ------------------------------------------------------------------------------
 # FILTER CABANG BERDASARKAN LOGIN
 # ------------------------------------------------------------------------------
 user_branch = st.session_state.get("user_branch", None)
@@ -365,6 +395,36 @@ try:
 except Exception as e:
     st.error(f"Gagal konek ke Postgres: {e}")
     st.stop()
+# ------------------------------------------------------------------------------
+# SINKRONISASI DENGAN LOGIN MAIN.PY
+# ------------------------------------------------------------------------------
+if "auth_ok" not in st.session_state:
+    st.warning("Silakan login melalui halaman utama terlebih dahulu.")
+    st.stop()
+
+user_branch = st.session_state.get("user_branch", None)
+
+def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
+    """Menjalankan query dengan filter cabang otomatis sesuai user login."""
+    if user_branch and user_branch != "ALL":
+        for tbl in [
+            "pwh.patients",
+            "pwh.hemo_diagnoses",
+            "pwh.hemo_inhibitors",
+            "pwh.virus_tests",
+            "pwh.treatment_hospital",
+            "pwh.death",
+            "pwh.contacts"
+        ]:
+            if f"FROM {tbl}" in query and "WHERE" not in query:
+                query = query.replace(f"FROM {tbl}", f"FROM {tbl} WHERE cabang = :branch")
+            elif f"FROM {tbl}" in query and "WHERE" in query:
+                query = query.replace("WHERE", "WHERE cabang = :branch AND ")
+        params = params or {}
+        params["branch"] = user_branch
+    with engine.begin() as conn:
+        return pd.read_sql(text(query), conn, params=params or {})
+
 # ------------------------------------------------------------------------------
 # FILTER CABANG BERDASARKAN LOGIN
 # ------------------------------------------------------------------------------
