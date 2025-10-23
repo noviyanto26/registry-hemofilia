@@ -331,9 +331,9 @@ def _resolve_db_url() -> str:
     if env: return env
     st.error('DATABASE_URL tidak ditemukan. Isi `.streamlit/secrets.toml` dengan format:\n''DATABASE_URL = "postgresql+psycopg2://USER:PASSWORD@127.0.0.1:5432/pwhdb"')
     st.stop()
-# ------------------------------------------------------------------------------
-# SINKRONISASI DENGAN LOGIN MAIN.PY
-# ------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# LOGIN VALIDATION DAN FILTER CABANG (Sinkron dengan main.py)
+# ----------------------------------------------------------------------------
 if "auth_ok" not in st.session_state:
     st.warning("Silakan login melalui halaman utama terlebih dahulu.")
     st.stop()
@@ -355,6 +355,10 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
             if f"FROM {tbl}" in query and "WHERE" not in query:
                 query = query.replace(f"FROM {tbl}", f"FROM {tbl} WHERE cabang = :branch")
             elif f"FROM {tbl}" in query and "WHERE" in query:
+                query = query.replace("WHERE", "WHERE cabang = :branch AND ")
+            elif f"JOIN {tbl}" in query and "WHERE" not in query:
+                query += " WHERE cabang = :branch"
+            elif f"JOIN {tbl}" in query and "WHERE" in query:
                 query = query.replace("WHERE", "WHERE cabang = :branch AND ")
         params = params or {}
         params["branch"] = user_branch
@@ -395,9 +399,9 @@ try:
 except Exception as e:
     st.error(f"Gagal konek ke Postgres: {e}")
     st.stop()
-# ------------------------------------------------------------------------------
-# SINKRONISASI DENGAN LOGIN MAIN.PY
-# ------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# LOGIN VALIDATION DAN FILTER CABANG (Sinkron dengan main.py)
+# ----------------------------------------------------------------------------
 if "auth_ok" not in st.session_state:
     st.warning("Silakan login melalui halaman utama terlebih dahulu.")
     st.stop()
@@ -419,6 +423,10 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
             if f"FROM {tbl}" in query and "WHERE" not in query:
                 query = query.replace(f"FROM {tbl}", f"FROM {tbl} WHERE cabang = :branch")
             elif f"FROM {tbl}" in query and "WHERE" in query:
+                query = query.replace("WHERE", "WHERE cabang = :branch AND ")
+            elif f"JOIN {tbl}" in query and "WHERE" not in query:
+                query += " WHERE cabang = :branch"
+            elif f"JOIN {tbl}" in query and "WHERE" in query:
                 query = query.replace("WHERE", "WHERE cabang = :branch AND ")
         params = params or {}
         params["branch"] = user_branch
