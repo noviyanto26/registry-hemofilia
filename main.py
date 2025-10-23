@@ -60,7 +60,7 @@ else:
     st.stop() # Hentikan jika DB_URL tidak ditemukan
 
 # Konteks untuk hashing password
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
 
 # -----------------------------
 # Auth via Database
