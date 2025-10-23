@@ -359,8 +359,20 @@ USER_BRANCH = st.session_state.get("user_branch", "ALL")
 # Helper eksekusi
 # ------------------------------------------------------------------------------
 def run_df(query: str, params: dict | None = None) -> pd.DataFrame:
-    with engine.begin() as conn:
-        return pd.read_sql(text(query), conn, params=params or {})
+    # Pastikan parameter branch selalu ada
+    branch_val = st.session_state.get("user_branch", "ALL") if "user_branch" in st.session_state else "ALL"
+    if params is None:
+        params = {"branch": branch_val}
+    else:
+        params.setdefault("branch", branch_val)
+
+    try:
+        with engine.begin() as conn:
+            df = pd.read_sql(text(query), conn, params=params)
+        return df
+    except Exception as e:
+        st.error(f"Gagal menjalankan query: {e}")
+        return pd.DataFrame()
 
 def run_exec(sql: str, params: dict | None = None):
     with engine.begin() as conn:
