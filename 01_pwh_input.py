@@ -15,7 +15,7 @@ st.set_page_config(page_title="PWH Input", page_icon="🩸", layout="wide")
 # ------------------------------------------------------------------------------
 def build_excel_bytes() -> bytes:
     # Ambil semua dataset
-    df_patients = run_df(add_branch_filter("""
+    df_patients = safe_run_df("""
         SELECT
     p.id,
     p.full_name,
@@ -44,6 +44,25 @@ WHERE (:branch = 'ALL' OR p.cabang = :branch)
 ORDER BY p.id
 
     """)
+# ============================================================
+# FILTER CABANG LOGIN AMAN
+# ============================================================
+def safe_run_df(query: str, params: dict | None = None) -> pd.DataFrame:
+    branch = st.session_state.get("user_branch", "ALL")
+    if params is None:
+        params = {"branch": branch}
+    else:
+        params.setdefault("branch", branch)
+
+    # Jika tabel patients ada di query
+    if "pwh.patients" in query:
+        if "WHERE" in query:
+            query = query.replace("WHERE", "WHERE (:branch = 'ALL' OR p.cabang = :branch) AND ")
+        else:
+            query += "\nWHERE (:branch = 'ALL' OR p.cabang = :branch)"
+
+    return run_df(query, params)
+
     df_diag = run_df(add_branch_filter("""
         SELECT d.id, d.patient_id, p.full_name, d.hemo_type, d.severity, d.diagnosed_on, d.source
         FROM pwh.hemo_diagnoses d JOIN pwh.patients p ON p.id = d.patient_id
