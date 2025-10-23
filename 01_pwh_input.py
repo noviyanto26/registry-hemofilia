@@ -15,35 +15,35 @@ st.set_page_config(page_title="PWH Input", page_icon="🩸", layout="wide")
 # ------------------------------------------------------------------------------
 def build_excel_bytes() -> bytes:
     # Ambil semua dataset
-    dfp = run_df("""
-    SELECT
-        p.id,
-        p.full_name,
-        p.birth_place,
-        p.birth_date,
-        p.nik,
-        COALESCE(pa.age_years, EXTRACT(YEAR FROM age(CURRENT_DATE, p.birth_date))) AS age_years,
-        p.blood_group,
-        p.rhesus,
-        p.gender,
-        p.occupation,
-        p.education,
-        p.address,
-        p.village,
-        p.district,
-        p.phone,
-        p.province,
-        p.city,
-        p.cabang,
-        p.kota_cakupan,
-        p.created_at
-    FROM pwh.patients p
-    LEFT JOIN pwh.patient_age pa ON pa.id = p.id
-    WHERE (:branch = 'ALL' OR p.cabang = :branch)
-    ORDER BY p.id DESC
-    LIMIT 200;
-""", {"branch": st.session_state.get("user_branch", "ALL")})
+    df_patients = run_df("""
+        SELECT
+    p.id,
+    p.full_name,
+    p.birth_place,
+    p.birth_date,
+    p.nik,
+    COALESCE(pa.age_years, EXTRACT(YEAR FROM age(CURRENT_DATE, p.birth_date))) AS age_years,
+    p.blood_group,
+    p.rhesus,
+    p.gender,
+    p.occupation,
+    p.education,
+    p.address,
+    p.village,
+    p.district,
+    p.phone,
+    p.province,
+    p.city,
+    p.cabang, 
+    p.kota_cakupan,
+    p.note,
+    p.created_at
+FROM pwh.patients p
+LEFT JOIN pwh.patient_age pa ON pa.id = p.id
+WHERE (:branch = 'ALL' OR p.cabang = :branch)
+ORDER BY p.id
 
+    """)
     df_diag = run_df("""
         SELECT d.id, d.patient_id, p.full_name, d.hemo_type, d.severity, d.diagnosed_on, d.source
         FROM pwh.hemo_diagnoses d JOIN pwh.patients p ON p.id = d.patient_id
@@ -338,6 +338,8 @@ def get_engine(dsn: str) -> Engine:
     return create_engine(dsn, pool_pre_ping=True)
 
 DSN = _resolve_db_url()
+try:
+    engine = get_engine(DSN)
 # ============================================================
 # FILTER CABANG LOGIN
 # ============================================================
@@ -346,8 +348,6 @@ if "user_branch" not in st.session_state:
     st.stop()
 USER_BRANCH = st.session_state.get("user_branch", "ALL")
 
-try:
-    engine = get_engine(DSN)
     with engine.connect() as _c:
         _c.exec_driver_sql("SELECT 1")
 except Exception as e:
@@ -358,24 +358,8 @@ except Exception as e:
 # Helper eksekusi
 # ------------------------------------------------------------------------------
 def run_df(query: str, params: dict | None = None) -> pd.DataFrame:
-    # Pastikan koneksi database aktif
-    if "engine" not in globals():
-        st.error("Koneksi database belum diinisialisasi.")
-        return pd.DataFrame()
-
-    # Tambahkan parameter default untuk cabang login
-    if params is None:
-        params = {"branch": st.session_state.get("user_branch", "ALL")}
-    else:
-        params.setdefault("branch", st.session_state.get("user_branch", "ALL"))
-
-    try:
-        with engine.begin() as conn:
-            df = pd.read_sql(text(query), conn, params=params)
-        return df
-    except Exception as e:
-        st.error(f"Gagal menjalankan query: {e}")
-        return pd.DataFrame()
+    with engine.begin() as conn:
+        return pd.read_sql(text(query), conn, params=params or {})
 
 def run_exec(sql: str, params: dict | None = None):
     with engine.begin() as conn:
@@ -1074,8 +1058,8 @@ SELECT
     p.kota_cakupan,
     p.created_at
 FROM pwh.patients p
-WHERE (:branch = 'ALL' OR p.cabang = :branch)
 LEFT JOIN pwh.patient_age pa ON pa.id = p.id
+WHERE (:branch = 'ALL' OR p.cabang = :branch)
 ORDER BY p.id DESC
 LIMIT 200;
 
