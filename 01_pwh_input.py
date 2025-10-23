@@ -14,82 +14,68 @@ st.set_page_config(page_title="PWH Input", page_icon="🩸", layout="wide")
 # Builder file Excel (multi-sheet) untuk semua tab
 # ------------------------------------------------------------------------------
 def build_excel_bytes() -> bytes:
-    # Ambil semua dataset dengan filter cabang aman
+    # Ambil semua dataset
     df_patients = safe_run_df("""
         SELECT
-            p.id,
-            p.full_name,
-            p.birth_place,
-            p.birth_date,
-            p.nik,
-            COALESCE(pa.age_years, EXTRACT(YEAR FROM age(CURRENT_DATE, p.birth_date))) AS age_years,
-            p.blood_group,
-            p.rhesus,
-            p.gender,
-            p.occupation,
-            p.education,
-            p.address,
-            p.village,
-            p.district,
-            p.phone,
-            p.province,
-            p.city,
-            p.cabang,
-            p.kota_cakupan,
-            p.note,
-            p.created_at
-        FROM pwh.patients p
-        LEFT JOIN pwh.patient_age pa ON pa.id = p.id
-        WHERE (:branch = 'ALL' OR p.cabang = :branch)
-        ORDER BY p.id
-    """)
+    p.id,
+    p.full_name,
+    p.birth_place,
+    p.birth_date,
+    p.nik,
+    COALESCE(pa.age_years, EXTRACT(YEAR FROM age(CURRENT_DATE, p.birth_date))) AS age_years,
+    p.blood_group,
+    p.rhesus,
+    p.gender,
+    p.occupation,
+    p.education,
+    p.address,
+    p.village,
+    p.district,
+    p.phone,
+    p.province,
+    p.city,
+    p.cabang, 
+    p.kota_cakupan,
+    p.note,
+    p.created_at
+FROM pwh.patients p
+LEFT JOIN pwh.patient_age pa ON pa.id = p.id
+WHERE (:branch = 'ALL' OR p.cabang = :branch)
+ORDER BY p.id
 
+    """)
     df_diag = safe_run_df("""
         SELECT d.id, d.patient_id, p.full_name, d.hemo_type, d.severity, d.diagnosed_on, d.source
-        FROM pwh.hemo_diagnoses d 
-        JOIN pwh.patients p ON p.id = d.patient_id
+        FROM pwh.hemo_diagnoses d JOIN pwh.patients p ON p.id = d.patient_id
         ORDER BY d.patient_id, d.id
     """)
-
     df_inh = safe_run_df("""
         SELECT i.id, i.patient_id, p.full_name, i.factor, i.titer_bu, i.measured_on, i.lab
-        FROM pwh.hemo_inhibitors i 
-        JOIN pwh.patients p ON p.id = i.patient_id
+        FROM pwh.hemo_inhibitors i JOIN pwh.patients p ON p.id = i.patient_id
         ORDER BY i.patient_id, i.measured_on NULLS LAST, i.id
     """)
-
     df_virus = safe_run_df("""
         SELECT v.id, v.patient_id, p.full_name, v.test_type, v.result, v.tested_on, v.lab
-        FROM pwh.virus_tests v 
-        JOIN pwh.patients p ON p.id = v.patient_id
+        FROM pwh.virus_tests v JOIN pwh.patients p ON p.id = v.patient_id
         ORDER BY v.patient_id, v.tested_on NULLS LAST, v.id
     """)
-
     df_hospital = safe_run_df("""
         SELECT th.id, th.patient_id, p.full_name, th.name_hospital, th.city_hospital, th.province_hospital,
                th.date_of_visit, th.doctor_in_charge, th.treatment_type, th.care_services, th.frequency, th.dose, th.product, th.merk
-        FROM pwh.treatment_hospital th 
-        JOIN pwh.patients p ON p.id = th.patient_id
+        FROM pwh.treatment_hospital th JOIN pwh.patients p ON p.id = th.patient_id
         ORDER BY th.patient_id, th.id
     """)
-
     df_death = safe_run_df("""
         SELECT d.id, d.patient_id, p.full_name, d.cause_of_death, d.year_of_death
-        FROM pwh.death d 
-        JOIN pwh.patients p ON p.id = d.patient_id
+        FROM pwh.death d JOIN pwh.patients p ON p.id = d.patient_id
         ORDER BY d.patient_id, d.id
     """)
-
     df_contacts = safe_run_df("""
         SELECT c.id, c.patient_id, p.full_name, c.relation, c.name, c.phone, c.is_primary
-        FROM pwh.contacts c 
-        JOIN pwh.patients p ON p.id = c.patient_id
+        FROM pwh.contacts c JOIN pwh.patients p ON p.id = c.patient_id
         ORDER BY c.patient_id, c.id
     """)
-
-    df_summary = safe_run_df("""
-        SELECT * FROM pwh.patient_summary ORDER BY id
-    """)
+    df_summary = safe_run_df("""SELECT * FROM pwh.patient_summary ORDER BY id""")
     
     # --- FIX: Hapus Timezone dari Datetime Columns ---
     # Excel (via xlsxwriter) tidak mendukung datetime yang 'timezone-aware' (misal: UTC)
@@ -373,26 +359,6 @@ USER_BRANCH = st.session_state.get("user_branch", "ALL")
 # Helper eksekusi
 # ------------------------------------------------------------------------------
 def run_df(query: str, params: dict | None = None) -> pd.DataFrame:
-# ============================================================
-# FUNGSI FILTER CABANG OTOMATIS & PEMBUNGKUS QUERY AMAN
-# ============================================================
-def add_branch_filter(query: str) -> str:
-    """Menambahkan filter cabang ke query yang berisi pwh.patients"""
-    if "pwh.patients" in query and "WHERE" not in query:
-        return query + "\nWHERE (:branch = 'ALL' OR p.cabang = :branch)"
-    elif "pwh.patients" in query and "WHERE" in query:
-        return query.replace("WHERE", "WHERE (:branch = 'ALL' OR p.cabang = :branch) AND ")
-    return query
-
-def safe_run_df(query: str, params: dict | None = None) -> pd.DataFrame:
-    """Menjalankan query dengan filter cabang otomatis"""
-    branch = st.session_state.get("user_branch", "ALL")
-    if params is None:
-        params = {"branch": branch}
-    else:
-        params.setdefault("branch", branch)
-    return run_df(add_branch_filter(query), params)
-
     with engine.begin() as conn:
         return pd.read_sql(text(query), conn, params=params or {})
 
