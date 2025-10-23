@@ -15,7 +15,7 @@ st.set_page_config(page_title="PWH Input", page_icon="🩸", layout="wide")
 # ------------------------------------------------------------------------------
 def build_excel_bytes() -> bytes:
     # Ambil semua dataset
-    df_patients = safe_run_df("""
+    df_patients = run_df("""
         SELECT
     p.id,
     p.full_name,
@@ -44,38 +44,38 @@ WHERE (:branch = 'ALL' OR p.cabang = :branch)
 ORDER BY p.id
 
     """)
-    df_diag = safe_run_df("""
+    df_diag = run_df("""
         SELECT d.id, d.patient_id, p.full_name, d.hemo_type, d.severity, d.diagnosed_on, d.source
         FROM pwh.hemo_diagnoses d JOIN pwh.patients p ON p.id = d.patient_id
         ORDER BY d.patient_id, d.id
     """)
-    df_inh = safe_run_df("""
+    df_inh = run_df("""
         SELECT i.id, i.patient_id, p.full_name, i.factor, i.titer_bu, i.measured_on, i.lab
         FROM pwh.hemo_inhibitors i JOIN pwh.patients p ON p.id = i.patient_id
         ORDER BY i.patient_id, i.measured_on NULLS LAST, i.id
     """)
-    df_virus = safe_run_df("""
+    df_virus = run_df("""
         SELECT v.id, v.patient_id, p.full_name, v.test_type, v.result, v.tested_on, v.lab
         FROM pwh.virus_tests v JOIN pwh.patients p ON p.id = v.patient_id
         ORDER BY v.patient_id, v.tested_on NULLS LAST, v.id
     """)
-    df_hospital = safe_run_df("""
+    df_hospital = run_df("""
         SELECT th.id, th.patient_id, p.full_name, th.name_hospital, th.city_hospital, th.province_hospital,
                th.date_of_visit, th.doctor_in_charge, th.treatment_type, th.care_services, th.frequency, th.dose, th.product, th.merk
         FROM pwh.treatment_hospital th JOIN pwh.patients p ON p.id = th.patient_id
         ORDER BY th.patient_id, th.id
     """)
-    df_death = safe_run_df("""
+    df_death = run_df("""
         SELECT d.id, d.patient_id, p.full_name, d.cause_of_death, d.year_of_death
         FROM pwh.death d JOIN pwh.patients p ON p.id = d.patient_id
         ORDER BY d.patient_id, d.id
     """)
-    df_contacts = safe_run_df("""
+    df_contacts = run_df("""
         SELECT c.id, c.patient_id, p.full_name, c.relation, c.name, c.phone, c.is_primary
         FROM pwh.contacts c JOIN pwh.patients p ON p.id = c.patient_id
         ORDER BY c.patient_id, c.id
     """)
-    df_summary = safe_run_df("""SELECT * FROM pwh.patient_summary ORDER BY id""")
+    df_summary = run_df("""SELECT * FROM pwh.patient_summary ORDER BY id""")
     
     # --- FIX: Hapus Timezone dari Datetime Columns ---
     # Excel (via xlsxwriter) tidak mendukung datetime yang 'timezone-aware' (misal: UTC)
@@ -205,7 +205,7 @@ def build_bulk_template_bytes() -> bytes:
             ("Nama RS", "text"), ("Kota RS", "text"), ("Provinsi RS", "text"),
             ("Tanggal Kunjungan", "date"), ("DPJP", "text"),
             ("Jenis Penanganan", ("list", "treatment_types_vals")), # Use new named range
-            ("Layanan Rawat", ("list", "care_services_vals")),    # Use new named range
+            ("Layanan Rawat", ("list", "care_services_vals")),     # Use new named range
             ("Frekuensi", "text"), ("Dosis", "text"),
             ("Produk", ("list", "products_vals")),                # Use new named range
             ("Merk", "text"),
@@ -471,11 +471,11 @@ RHESUS       = [""] + (fetch_enum_vals("rhesus_enum")        or ["+","-"])
 GENDERS      = ["", "Laki-laki", "Perempuan"]
 EDUCATION_LEVELS = [""] + (fetch_enum_vals("education_enum") or ["Tidak sekolah", "SD", "SMP", "SMA/SMK", "Diploma", "S1", "S2", "S3"])
 HEMO_TYPES   = fetch_enum_vals("hemo_type_enum")      or ["A","B","vWD","Other"]
-SEVERITIES   = fetch_enum_vals("severity_enum")         or ["Ringan","Sedang","Berat","Tidak diketahui"]
+SEVERITIES   = fetch_enum_vals("severity_enum")           or ["Ringan","Sedang","Berat","Tidak diketahui"]
 INHIB_FACTORS= fetch_enum_vals("inhibitor_factor_enum") or ["FVIII","FIX"]
 VIRUS_TESTS  = fetch_enum_vals("virus_test_enum")       or ["HBsAg","Anti-HCV","HIV"]
 TEST_RESULTS = fetch_enum_vals("test_result_enum")    or ["positive","negative","indeterminate","unknown"]
-RELATIONS    = fetch_enum_vals("relation_enum")         or ["ayah","ibu","wali","pasien","lainnya"]
+RELATIONS    = fetch_enum_vals("relation_enum")           or ["ayah","ibu","wali","pasien","lainnya"]
 PREFERRED_SEVERITY_ORDER = ["Ringan", "Sedang", "Berat", "Tidak diketahui"]
 SEVERITY_CHOICES = PREFERRED_SEVERITY_ORDER if all(x in SEVERITIES for x in PREFERRED_SEVERITY_ORDER) else SEVERITIES
 TREATMENT_TYPES = ["", "Prophylaxis", "On Demand"]
@@ -690,9 +690,9 @@ def import_bulk_excel(file) -> dict:
     results = {"Pasien": len(inserted_patients)}
     sheet_configs = {
         "Diagnosa": ("diagnosa", # nama sheet lowercase
-                       ["patient_id","full_name","hemo_type","severity","diagnosed_on","source"], # nama kolom internal
-                       MAP_DIAG, # Peta pembalikan
-                       lambda r, pid: insert_diagnosis(pid, _safe_str(r.get("hemo_type")), _safe_str(r.get("severity")), _to_date(r.get("diagnosed_on")), _safe_str(r.get("source")))),
+                        ["patient_id","full_name","hemo_type","severity","diagnosed_on","source"], # nama kolom internal
+                        MAP_DIAG, # Peta pembalikan
+                        lambda r, pid: insert_diagnosis(pid, _safe_str(r.get("hemo_type")), _safe_str(r.get("severity")), _to_date(r.get("diagnosed_on")), _safe_str(r.get("source")))),
         "Inhibitor": ("inhibitor",
                         ["patient_id","full_name","factor","titer_bu","measured_on","lab"],
                         MAP_INH,
@@ -712,18 +712,18 @@ def import_bulk_excel(file) -> dict:
                           })
                          ),
         "Kematian": ("kematian",
-                       ["patient_id", "full_name", "cause_of_death", "year_of_death"],
-                       MAP_DEATH,
-                       lambda r, pid: insert_death_record({
-                           "patient_id": pid,
-                           "cause_of_death": _safe_str(r.get("cause_of_death")),
-                           "year_of_death": pd.to_numeric(r.get("year_of_death"), errors='coerce')
-                       })
-                      ),
+                        ["patient_id", "full_name", "cause_of_death", "year_of_death"],
+                        MAP_DEATH,
+                        lambda r, pid: insert_death_record({
+                            "patient_id": pid,
+                            "cause_of_death": _safe_str(r.get("cause_of_death")),
+                            "year_of_death": pd.to_numeric(r.get("year_of_death"), errors='coerce')
+                        })
+                       ),
         "Kontak": ("kontak",
-                       ["patient_id","full_name","relation","name","phone","is_primary"],
-                       MAP_CONTACT,
-                       lambda r, pid: insert_contact(pid, _safe_str(r.get("relation")), _safe_str(r.get("name")), _safe_str(r.get("phone")), _to_bool(r.get("is_primary")))),
+                        ["patient_id","full_name","relation","name","phone","is_primary"],
+                        MAP_CONTACT,
+                        lambda r, pid: insert_contact(pid, _safe_str(r.get("relation")), _safe_str(r.get("name")), _safe_str(r.get("phone")), _to_bool(r.get("is_primary")))),
     }
 
     for key, (sheet_name_lowercase, internal_cols, reverse_map, insert_func) in sheet_configs.items():
@@ -760,7 +760,7 @@ def clear_session_state(prefix):
         del st.session_state[k]
 
 def auto_pick_latest_for_edit(df, state_key: str, table_fullname: str,
-                                id_col: str = "id", order_cols: list[str] | None = None):
+                              id_col: str = "id", order_cols: list[str] | None = None):
     # Abaikan jika tidak ada data
     if df is None or getattr(df, "empty", True):
         return
@@ -1036,7 +1036,7 @@ with tab_pat:
             clear_session_state('patient_matches')
             st.rerun()
 
-    dfp = safe_run_df("""
+    dfp = run_df("""
 SELECT
     p.id,
     p.full_name,
@@ -1267,7 +1267,7 @@ with tab_inh:
             st.success("Riwayat inhibitor ditambahkan.")
             st.rerun()
         else:
-                if not inh_data: st.warning("Silakan pilih pasien terlebih dahulu.")
+            if not inh_data: st.warning("Silakan pilih pasien terlebih dahulu.")
 
     st.markdown("---")
     st.markdown("### 📋 Data Inhibitor Terbaru")
@@ -1713,7 +1713,7 @@ with tab_contacts:
         if not name.strip():
             st.error("Nama Kontak wajib diisi.")
         elif not relation:
-                st.error("Relasi wajib diisi.")
+            st.error("Relasi wajib diisi.")
         else:
             payload = {"relation": relation, "name": name, "phone": (phone or "").strip() or None, "is_primary": is_primary}
             if cont_data:
