@@ -1,5 +1,5 @@
 # 01_pwh_input.py (Dengan tambahan kolom NIK, autoload Propinsi, autoload Cabang HMHI, dan layout rapi v3)
-# VERSI INI SUDAH DITAMBAHKAN FILTER CABANG SESUAI LOGIN
+# VERSI INI SUDAH DITAMBAHKAN FILTER CABANG SESUAI LOGIN + PERBAIKAN CRASH KEYERROR
 import os
 import io
 from datetime import date
@@ -138,23 +138,23 @@ def build_bulk_template_bytes() -> bytes:
     df_patients = run_df(f"SELECT id, full_name FROM pwh.patients p {filter_p} ORDER BY full_name", params_p)
     
     # Ambil data RS (ID dan nama) untuk validasi
-    df_hospitals = run_df("SELECT id, name FROM pwh.hospitals ORDER BY name")
+    df_hospitals = fetch_hospitals() # Ini sudah di-wrap try...except
 
     # Ambil data lookups dari helper tables
-    df_blood_groups = pd.DataFrame(run_df("SELECT blood_group FROM pwh.helper_blood_groups")['blood_group'])
-    df_rhesus = pd.DataFrame(run_df("SELECT rhesus FROM pwh.helper_rhesus")['rhesus'])
-    df_genders = pd.DataFrame(run_df("SELECT gender FROM pwh.helper_genders")['gender'])
-    df_hemo_types = pd.DataFrame(run_df("SELECT hemo_type FROM pwh.helper_hemo_types")['hemo_type'])
-    df_severities = pd.DataFrame(run_df("SELECT severity FROM pwh.helper_severities")['severity'])
-    df_educations = pd.DataFrame(run_df("SELECT education FROM pwh.helper_education_levels")['education'])
-    df_inhibitor_factors = pd.DataFrame(run_df("SELECT factor FROM pwh.helper_inhibitor_factors")['factor'])
-    df_virus_tests = pd.DataFrame(run_df("SELECT test_type FROM pwh.helper_virus_tests")['test_type'])
-    df_test_results = pd.DataFrame(run_df("SELECT result FROM pwh.helper_test_results")['result'])
-    df_relations = pd.DataFrame(run_df("SELECT relation FROM pwh.helper_relations")['relation'])
-    df_occupations = pd.DataFrame(fetch_occupations_list()['occupation'])
-    df_treatment_types = pd.DataFrame(run_df("SELECT treatment_type FROM pwh.helper_treatment_types")['treatment_type'])
-    df_care_services = pd.DataFrame(run_df("SELECT care_service FROM pwh.helper_care_services")['care_service'])
-    df_products = pd.DataFrame(run_df("SELECT product FROM pwh.helper_products")['product'])
+    df_blood_groups = pd.DataFrame(run_df("SELECT blood_group FROM pwh.helper_blood_groups").get('blood_group', pd.Series(dtype=str)))
+    df_rhesus = pd.DataFrame(run_df("SELECT rhesus FROM pwh.helper_rhesus").get('rhesus', pd.Series(dtype=str)))
+    df_genders = pd.DataFrame(run_df("SELECT gender FROM pwh.helper_genders").get('gender', pd.Series(dtype=str)))
+    df_hemo_types = pd.DataFrame(run_df("SELECT hemo_type FROM pwh.helper_hemo_types").get('hemo_type', pd.Series(dtype=str)))
+    df_severities = pd.DataFrame(run_df("SELECT severity FROM pwh.helper_severities").get('severity', pd.Series(dtype=str)))
+    df_educations = pd.DataFrame(run_df("SELECT education FROM pwh.helper_education_levels").get('education', pd.Series(dtype=str)))
+    df_inhibitor_factors = pd.DataFrame(run_df("SELECT factor FROM pwh.helper_inhibitor_factors").get('factor', pd.Series(dtype=str)))
+    df_virus_tests = pd.DataFrame(run_df("SELECT test_type FROM pwh.helper_virus_tests").get('test_type', pd.Series(dtype=str)))
+    df_test_results = pd.DataFrame(run_df("SELECT result FROM pwh.helper_test_results").get('result', pd.Series(dtype=str)))
+    df_relations = pd.DataFrame(run_df("SELECT relation FROM pwh.helper_relations").get('relation', pd.Series(dtype=str)))
+    df_occupations = pd.DataFrame(fetch_occupations_list().get('occupation', pd.Series(dtype=str)))
+    df_treatment_types = pd.DataFrame(run_df("SELECT treatment_type FROM pwh.helper_treatment_types").get('treatment_type', pd.Series(dtype=str)))
+    df_care_services = pd.DataFrame(run_df("SELECT care_service FROM pwh.helper_care_services").get('care_service', pd.Series(dtype=str)))
+    df_products = pd.DataFrame(run_df("SELECT product FROM pwh.helper_products").get('product', pd.Series(dtype=str)))
 
     # Gabungkan semua lookups untuk sheet 'lookups'
     df_lookups = pd.concat([
@@ -253,7 +253,10 @@ def build_bulk_template_bytes() -> bytes:
         def add_validation(sheet_name, col, col_idx, lookup_df, lookup_col_name):
             try:
                 worksheet = writer.sheets[sheet_name]
-                lookup_len = len(lookup_df)
+                # Pastikan lookup_df tidak kosong dan kolom ada
+                if lookup_df.empty or lookup_col_name not in lookup_df.columns:
+                    return
+                lookup_len = len(lookup_df[lookup_col_name].dropna())
                 if lookup_len == 0: return # Jangan lakukan jika lookup kosong
                 
                 # Buat named range
@@ -293,23 +296,9 @@ def build_bulk_template_bytes() -> bytes:
 
         # Validasi data 'patient_id' dan 'hospital_name'
         try:
-            # Validasi Patient ID (mapping dari full_name)
+            # Validasi Patient ID
             patient_lookup_len = len(df_patients)
-            if patient_lookup_len > 0:
-                worksheet_patients_lookup.define_name("lookup_patient_names", f"=data_patients_lookup!$B$2:$B${patient_lookup_len + 1}")
-                
-                # Fungsi vlookup untuk mendapatkan ID dari nama
-                # =VLOOKUP(B2, data_patients_lookup!$B$2:$A$1000, 2, FALSE) -> ini salah, harusnya $B:$A
-                # Kita asumsikan ID di kolom A, Nama di kolom B
-                # =VLOOKUP(Nama, data_patients_lookup!$B:$A, 2, FALSE) -> Masih salah
-                # =VLOOKUP(Nama, data_patients_lookup!$B$2:$A${N}, 1, FALSE) -> ?
-                # Koreksi: =VLOOKUP(B2, data_patients_lookup!$B$2:$A${N}, 1, FALSE)
-                # Koreksi 2: =VLOOKUP(B2, data_patients_lookup!$B:$A, 2, FALSE)
-                
-                # Cara paling aman: validasi list dari nama
-                # Ini akan digunakan di 'full_name' di sheet lain jika 'patient_id' tidak diisi
-                
-                # Kita pakai validasi list ID saja di kolom 'patient_id'
+            if patient_lookup_len > 0 and 'id' in df_patients.columns:
                 worksheet_patients_lookup.define_name("lookup_patient_ids", f"=data_patients_lookup!$A$2:$A${patient_lookup_len + 1}")
                 id_val_opts = {"validate": "list", "source": "=lookup_patient_ids"}
                 
@@ -322,7 +311,7 @@ def build_bulk_template_bytes() -> bytes:
 
             # Validasi Hospital Name
             hospital_lookup_len = len(df_hospitals)
-            if hospital_lookup_len > 0:
+            if hospital_lookup_len > 0 and 'name' in df_hospitals.columns:
                 worksheet_hospitals_lookup.define_name("lookup_hospital_names", f"=data_hospitals_lookup!$B$2:$B${hospital_lookup_len + 1}")
                 writer.sheets["treatment_hospitals"].data_validation("B2:B1048576", {"validate": "list", "source": "=lookup_hospital_names"})
 
@@ -344,7 +333,10 @@ def import_bulk_excel(file) -> dict:
     
     # Ambil data RS untuk mapping nama ke ID
     try:
-        hospital_lookup = run_df("SELECT id, name FROM pwh.hospitals").set_index('name')['id'].to_dict()
+        hospital_lookup_df = fetch_hospitals() # Ini sudah di-wrap
+        if hospital_lookup_df.empty:
+            raise Exception("Tabel 'pwh.hospitals' kosong atau tidak ditemukan.")
+        hospital_lookup = hospital_lookup_df.set_index('name')['id'].to_dict()
     except Exception as e:
         raise Exception(f"Gagal memuat data RS untuk mapping: {e}")
 
@@ -400,8 +392,8 @@ def import_bulk_excel(file) -> dict:
         # 2. Ambil semua patient ID yang ada (termasuk yang baru)
         # Ini penting agar user cabang tidak bisa import data ke pasien cabang lain
         all_patients_df = get_all_patients_for_selection() # Ini sudah difilter by cabang
-        existing_patient_id_map = all_patients_df.set_index('full_name')['id'].to_dict()
-        allowed_patient_ids = set(all_patients_df['id'])
+        existing_patient_id_map = all_patients_df.set_index('full_name')['id'].to_dict() if 'full_name' in all_patients_df.columns else {}
+        allowed_patient_ids = set(all_patients_df['id']) if 'id' in all_patients_df.columns else set()
         
         # Gabungkan map
         patient_id_map = {**existing_patient_id_map, **new_patient_id_map}
@@ -420,8 +412,12 @@ def import_bulk_excel(file) -> dict:
                     params = row.to_dict()
                     
                     # Dapatkan patient_id
-                    pid = params.get('patient_id')
-                    if not pid or pid == 'None':
+                    pid_str = params.get('patient_id')
+                    pid = None
+                    
+                    if pid_str and pid_str != 'None':
+                        pid = int(float(pid_str)) # Konversi dari string, bisa jadi float "123.0"
+                    else:
                         # Coba map dari full_name jika ada
                         full_name = params.get('full_name')
                         if full_name and full_name in patient_id_map:
@@ -431,7 +427,6 @@ def import_bulk_excel(file) -> dict:
                             results["dilewati"] += 1
                             continue
                     
-                    pid = int(pid)
                     params['patient_id'] = pid
                     
                     # --- VALIDASI KONTROL AKSES ---
@@ -497,7 +492,7 @@ def import_bulk_excel(file) -> dict:
                              :care_services, :frequency, :dose, :product, :merk)
                         """)
                     
-                    if query:
+                    if query is not None:
                         conn.execute(query, params)
                         results["diimpor"] += 1
 
@@ -512,6 +507,7 @@ def import_bulk_excel(file) -> dict:
 # KONEKSI DATABASE
 # ------------------------------------------------------------------------------
 def _resolve_db_url() -> str:
+    # --- PERBAIKAN: Membaca dari [secrets] ---
     try:
         sec = st.secrets.get("secrets", {}).get("DATABASE_URL", "")
         if sec: 
@@ -525,6 +521,7 @@ def _resolve_db_url() -> str:
     st.error('DATABASE_URL tidak ditemukan di Streamlit Secrets atau env var.')
     st.caption("Pastikan Anda sudah menambahkan `DATABASE_URL` ke dalam blok `[secrets]` di Streamlit Cloud.")
     return None
+    # --- AKHIR PERBAIKAN ---
 
 @st.cache_resource(show_spinner="Menghubungkan ke database...")
 def get_engine(dsn: str) -> Engine:
@@ -553,6 +550,7 @@ def run_df(query: str, params: dict = None) -> pd.DataFrame:
             return pd.read_sql(text(query), conn, params=params)
     except Exception as e:
         st.error(f"Gagal eksekusi query: {e}")
+        # --- PERBAIKAN: Kembalikan DataFrame kosong agar tidak crash ---
         return pd.DataFrame()
 
 # Helper untuk eksekusi DML (Insert, Update, Delete)
@@ -592,23 +590,50 @@ def get_all_patients_for_selection() -> pd.DataFrame:
 # Cache data pekerjaan
 @st.cache_data(show_spinner="Memuat daftar pekerjaan...")
 def fetch_occupations_list() -> pd.DataFrame:
-    return run_df("SELECT occupation FROM pwh.helper_occupations ORDER BY occupation")
+    # --- PERBAIKAN: Tambahkan try...except untuk mencegah crash ---
+    try:
+        return run_df("SELECT occupation FROM pwh.helper_occupations ORDER BY occupation")
+    except Exception as e:
+        st.error(f"Gagal memuat daftar pekerjaan: {e}")
+        return pd.DataFrame(columns=['occupation']) # Kembalikan DataFrame kosong
+    # --- AKHIR PERBAIKAN ---
 
 # Cache data RS
 @st.cache_data(show_spinner="Memuat daftar RS...")
 def fetch_hospitals() -> pd.DataFrame:
-    return run_df("SELECT id, name, city, province FROM pwh.hospitals ORDER BY name")
+    # --- PERBAIKAN: Tambahkan try...except untuk mencegah crash ---
+    try:
+        return run_df("SELECT id, name, city, province FROM pwh.hospitals ORDER BY name")
+    except Exception as e:
+        st.error(f"Gagal memuat daftar RS: {e}")
+        return pd.DataFrame(columns=['id', 'name', 'city', 'province']) # Kembalikan DataFrame kosong
+    # --- AKHIR PERBAIKAN ---
 
 # Cache data wilayah (Provinsi, Kota)
 @st.cache_data(show_spinner="Memuat data wilayah...")
 def fetch_all_wilayah_details() -> pd.DataFrame:
-    return run_df("SELECT province, city, district, village FROM pwh.wilayah_indonesia ORDER BY province, city, district, village")
+    # --- PERBAIKAN: Tambahkan try...except untuk mencegah crash ---
+    try:
+        # --- PERUBAHAN NAMA TABEL ---
+        return run_df("SELECT province, city, district, village FROM public.wilayah ORDER BY province, city, district, village")
+    except Exception as e:
+        st.error(f"Gagal memuat data wilayah: {e}")
+        return pd.DataFrame(columns=["province", "city", "district", "village"]) # Kembalikan DataFrame kosong
+    # --- AKHIR PERBAIKAN ---
 
 # Cache data Cabang HMHI
 @st.cache_data(show_spinner="Memuat data cabang HMHI...")
 def fetch_hmhi_branches() -> list:
-    df = run_df("SELECT DISTINCT cabang FROM pwh.hmhi_cabang WHERE cabang IS NOT NULL ORDER BY cabang")
-    return df['cabang'].tolist()
+    # --- PERBAIKAN: Tambahkan try...except dan penanganan DataFrame kosong ---
+    try:
+        df = run_df("SELECT DISTINCT cabang FROM pwh.hmhi_cabang WHERE cabang IS NOT NULL ORDER BY cabang")
+        if not df.empty and 'cabang' in df.columns:
+            return df['cabang'].tolist()
+        return [] # Kembalikan list kosong jika query gagal atau tabel kosong
+    except Exception as e:
+        st.error(f"Gagal memuat daftar cabang HMHI: {e}")
+        return []
+    # --- AKHIR PERBAIKAN ---
 
 # ------------------------------------------------------------------------------
 # FUNGSI HELPER
@@ -688,17 +713,31 @@ def safe_date(val):
 # ------------------------------------------------------------------------------
 st.title("📝 Input Data Pasien Hemofilia")
 
+# --- KONTROL AKSES: Ambil info user di awal ---
+user_branch = st.session_state.get("user_branch", "ALL")
+is_admin = (user_branch == "ALL")
+
 # Ambil data cache
-df_patients_list = get_all_patients_for_selection()
+df_patients_list = get_all_patients_for_selection() # Sudah difilter
 df_wilayah = fetch_all_wilayah_details()
 df_occupations = fetch_occupations_list()
 df_hospitals = fetch_hospitals()
 
 # Helper list
 list_patients = df_patients_list.to_dict('records') # List of {'id': 1, 'full_name': '...'}
-list_provinsi = [""] + df_wilayah['province'].unique().tolist()
-list_occupations = [""] + df_occupations['occupation'].unique().tolist()
-list_hospitals = df_hospitals.to_dict('records') # List of {'id': 1, 'name': '...', 'city': '...'}
+# --- PERBAIKAN: Cek jika df_wilayah kosong ---
+list_provinsi = [""]
+if not df_wilayah.empty and 'province' in df_wilayah.columns:
+    list_provinsi = [""] + df_wilayah['province'].unique().tolist()
+
+list_occupations = [""]
+if not df_occupations.empty and 'occupation' in df_occupations.columns:
+    list_occupations = [""] + df_occupations['occupation'].unique().tolist()
+    
+list_hospitals = []
+if not df_hospitals.empty:
+    list_hospitals = df_hospitals.to_dict('records') # List of {'id': 1, 'name': '...', 'city': '...'}
+# --- AKHIR PERBAIKAN ---
 
 
 # --- STATE: ID Pasien yang dipilih ---
@@ -706,7 +745,8 @@ if 'selected_patient_id' not in st.session_state:
     st.session_state.selected_patient_id = None
 
 def select_patient():
-    st.session_state.selected_patient_id = st.session_state.patient_selector
+    if st.session_state.patient_selector:
+        st.session_state.selected_patient_id = st.session_state.patient_selector.id
 
 def clear_selection():
     st.session_state.selected_patient_id = None
@@ -716,13 +756,23 @@ def clear_selection():
 st.markdown("Pilih pasien untuk **Edit Data** atau kosongkan untuk **Tambah Pasien Baru**.")
 col_sel, col_btn = st.columns([3, 1])
 with col_sel:
+    # --- PERBAIKAN: Ambil index default ---
+    default_patient_index = None
+    if st.session_state.selected_patient_id:
+        try:
+            # Cari index dari pasien yang dipilih
+            default_patient_index = df_patients_list[df_patients_list['id'] == st.session_state.selected_patient_id].index[0]
+        except IndexError:
+            default_patient_index = None # Tidak ditemukan (mungkin baru dibuat)
+    # --- AKHIR PERBAIKAN ---
+
     st.selectbox(
         "Pilih Pasien (Cari berdasarkan Nama atau ID)",
         options=df_patients_list.itertuples(),
         format_func=lambda x: f"{x.full_name} (ID: {x.id})",
         key="patient_selector",
         on_change=select_patient,
-        index=None,
+        index=default_patient_index, # Set index agar selector update
         placeholder="Ketik untuk mencari...",
     )
 with col_btn:
@@ -751,13 +801,13 @@ with tab_pat:
     with st.form("patient_form"):
         # Baris 1: Nama, Tempat/Tgl Lahir
         c1, c2, c3 = st.columns([2, 1, 1])
-        full_name = c1.text_input("Nama Lengkap", value=pat_data.get('full_name'))
-        birth_place = c2.text_input("Tempat Lahir", value=pat_data.get('birth_place'))
+        full_name = c1.text_input("Nama Lengkap", value=pat_data.get('full_name', ''))
+        birth_place = c2.text_input("Tempat Lahir", value=pat_data.get('birth_place', ''))
         birth_date = c3.date_input("Tanggal Lahir", value=safe_date(pat_data.get('birth_date')), min_value=date(1920, 1, 1), max_value=date.today())
 
         # Baris 2: NIK, Gol. Darah, Rhesus, Jenis Kelamin
         c1, c2, c3, c4 = st.columns(4)
-        nik = c1.text_input("NIK (16 digit)", value=pat_data.get('nik'), max_chars=16)
+        nik = c1.text_input("NIK (16 digit)", value=pat_data.get('nik', ''), max_chars=16)
         blood_group = c2.selectbox("Gol. Darah", ["", "A", "B", "AB", "O"], index=get_safe_index(["", "A", "B", "AB", "O"], pat_data.get('blood_group')))
         rhesus = c3.selectbox("Rhesus", ["", "+", "-"], index=get_safe_index(["", "+", "-"], pat_data.get('rhesus')))
         gender = c4.selectbox("Jenis Kelamin", ["", "Laki-laki", "Perempuan"], index=get_safe_index(["", "Laki-laki", "Perempuan"], pat_data.get('gender')))
@@ -778,7 +828,7 @@ with tab_pat:
         )
 
         # Baris 4: Alamat Lengkap
-        address = st.text_area("Alamat Lengkap (Sesuai KTP)", value=pat_data.get('address'), height=100)
+        address = st.text_area("Alamat Lengkap (Sesuai KTP)", value=pat_data.get('address', ''), height=100)
         
         # Baris 5: Wilayah (dependen)
         c1, c2, c3, c4 = st.columns(4)
@@ -791,7 +841,7 @@ with tab_pat:
         )
         
         list_kota = [""]
-        if selected_prov:
+        if selected_prov and not df_wilayah.empty:
             list_kota = [""] + df_wilayah[df_wilayah['province'] == selected_prov]['city'].unique().tolist()
         selected_kota = c2.selectbox(
             "Kabupaten/Kota (Domisili)", 
@@ -800,7 +850,7 @@ with tab_pat:
         )
         
         list_kecamatan = [""]
-        if selected_kota:
+        if selected_kota and not df_wilayah.empty:
             list_kecamatan = [""] + df_wilayah[(df_wilayah['city'] == selected_kota) & (df_wilayah['province'] == selected_prov)]['district'].unique().tolist()
         selected_kecamatan = c3.selectbox(
             "Kecamatan (Domisili)", 
@@ -809,7 +859,7 @@ with tab_pat:
         )
         
         list_kelurahan = [""]
-        if selected_kecamatan:
+        if selected_kecamatan and not df_wilayah.empty:
             list_kelurahan = [""] + df_wilayah[(df_wilayah['district'] == selected_kecamatan) & (df_wilayah['city'] == selected_kota)]['village'].unique().tolist()
         selected_kelurahan = c4.selectbox(
             "Kelurahan/Desa (Domisili)",
@@ -818,16 +868,12 @@ with tab_pat:
         )
         
         # Baris 6: Telepon
-        phone = st.text_input("No. Ponsel Aktif (Contoh: 0812...)", value=pat_data.get('phone'))
+        phone = st.text_input("No. Ponsel Aktif (Contoh: 0812...)", value=pat_data.get('phone', ''))
 
 
         # --- START: Logika HMHI Cabang Autofill (BARU) ---
         st.markdown("---") # Pemisah visual
         
-        # Ambil info user dari session
-        user_branch = st.session_state.get("user_branch", "ALL")
-        is_admin = (user_branch == "ALL")
-
         # Ambil daftar cabang (ini tidak difilter, semua admin/user bisa lihat)
         cabang_list = [""] + fetch_hmhi_branches()
         kota_cakupan_val = ""
@@ -861,8 +907,11 @@ with tab_pat:
         # Kita tidak perlu query lagi, cukup load df_hmhi_cabang
         try:
             df_hmhi_cabang = run_df("SELECT cabang, kota_cakupan FROM pwh.hmhi_cabang")
-            kota_cakupan_dict = df_hmhi_cabang.set_index('cabang')['kota_cakupan'].to_dict()
-            kota_cakupan_val = kota_cakupan_dict.get(selected_cabang, "N/A")
+            if not df_hmhi_cabang.empty:
+                kota_cakupan_dict = df_hmhi_cabang.set_index('cabang')['kota_cakupan'].to_dict()
+                kota_cakupan_val = kota_cakupan_dict.get(selected_cabang, "N/A")
+            else:
+                kota_cakupan_val = "N/A (Tabel hmhi_cabang kosong)"
         except Exception as e:
             st.error(f"Gagal memuat kota cakupan: {e}")
             kota_cakupan_val = "Error"
@@ -878,7 +927,7 @@ with tab_pat:
         # --- END: Logika HMHI Cabang Autofill ---
 
         # Baris 8: Catatan
-        note = st.text_area("Catatan Tambahan (Riwayat medis lain, dll)", value=pat_data.get('note'), height=100)
+        note = st.text_area("Catatan Tambahan (Riwayat medis lain, dll)", value=pat_data.get('note', ''), height=100)
 
         # Tombol Submit
         submitted = st.form_submit_button("Simpan Data Pasien", type="primary")
@@ -1124,7 +1173,7 @@ with tab_rs:
             c1, c2 = st.columns(2)
             selected_hospital = c1.selectbox(
                 "Nama RS",
-                options=df_hospitals.itertuples(),
+                options=df_hospitals.itertuples(), # df_hospitals sudah di-cache
                 format_func=lambda x: f"{x.name} (ID: {x.id}, Kota: {x.city})",
                 index=None,
                 placeholder="Ketik untuk mencari RS..."
@@ -1148,6 +1197,8 @@ with tab_rs:
             if submitted:
                 if not selected_hospital:
                     st.error("Nama RS wajib diisi.")
+                elif df_hospitals.empty:
+                    st.error("Gagal menambah RS: Daftar RS kosong. Periksa koneksi/nama tabel pwh.hospitals.")
                 else:
                     params = {
                         "pat_id": pat_id,
@@ -1275,9 +1326,9 @@ with tab_export:
 # --- TAMPILAN DATA PASIEN (DI LUAR TABS) ---
 # ------------------------------------------------------------------------------
 
-# --- KONTROL AKSES ---
-user_branch = st.session_state.get("user_branch", "ALL")
-is_admin = (user_branch == "ALL")
+# --- KONTROL AKSES (Sudah didefinisikan di atas) ---
+# user_branch = st.session_state.get("user_branch", "ALL")
+# is_admin = (user_branch == "ALL")
 
 filter_p = ""
 params_p = {}
@@ -1321,17 +1372,23 @@ dfp_query = f"""
 """
 dfp = run_df(dfp_query, params_p)
 
-# Kolom yang ingin ditampilkan
-dfp_display = dfp[[
-    "id", "full_name", "nik", "age_years", "gender", 
-    "cabang", "kota_cakupan", "province", "city", 
-    "phone", "created_at"
-]]
-# Ubah nama kolom untuk tampilan
-dfp_display.columns = [
-    "ID", "Nama Lengkap", "NIK", "Usia (Thn)", "Gender",
-    "Cabang HMHI", "Kota Cakupan", "Propinsi", "Kota/Kab",
-    "Telepon", "Tgl Dibuat"
-]
+# --- PERBAIKAN: Cek jika dfp kosong sebelum memilih kolom ---
+if not dfp.empty:
+    # Kolom yang ingin ditampilkan
+    dfp_display = dfp[[
+        "id", "full_name", "nik", "age_years", "gender", 
+        "cabang", "kota_cakupan", "province", "city", 
+        "phone", "created_at"
+    ]]
+    # Ubah nama kolom untuk tampilan
+    dfp_display.columns = [
+        "ID", "Nama Lengkap", "NIK", "Usia (Thn)", "Gender",
+        "Cabang HMHI", "Kota Cakupan", "Propinsi", "Kota/Kab",
+        "Telepon", "Tgl Dibuat"
+    ]
+    st.dataframe(dfp_display, use_container_width=True)
+else:
+    st.info("Tidak ada data pasien untuk ditampilkan (sesuai filter cabang Anda).")
+# --- AKHIR PERBAIKAN ---
 
-st.dataframe(dfp_display, use_container_width=True)
+
