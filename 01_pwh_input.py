@@ -341,7 +341,7 @@ if "auth_ok" not in st.session_state:
 user_branch = st.session_state.get("user_branch", None)
 
 def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
-    """Menjalankan query dengan filter cabang otomatis sesuai user login."""
+    """Menjalankan query dengan filter cabang otomatis sesuai user login (semua tabel PWH)."""
     if user_branch and user_branch != "ALL":
         for tbl in [
             "pwh.patients",
@@ -350,18 +350,22 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
             "pwh.virus_tests",
             "pwh.treatment_hospital",
             "pwh.death",
-            "pwh.contacts"
+            "pwh.contacts",
+            "pwh.patient_summary"
         ]:
+            # Kasus SELECT langsung
             if f"FROM {tbl}" in query and "WHERE" not in query:
                 query = query.replace(f"FROM {tbl}", f"FROM {tbl} WHERE cabang = :branch")
             elif f"FROM {tbl}" in query and "WHERE" in query:
                 query = query.replace("WHERE", "WHERE cabang = :branch AND ")
+            # Kasus JOIN (gabungan antar tabel)
             elif f"JOIN {tbl}" in query and "WHERE" not in query:
                 query += " WHERE cabang = :branch"
             elif f"JOIN {tbl}" in query and "WHERE" in query:
                 query = query.replace("WHERE", "WHERE cabang = :branch AND ")
         params = params or {}
         params["branch"] = user_branch
+
     with engine.begin() as conn:
         return pd.read_sql(text(query), conn, params=params or {})
 
@@ -370,21 +374,7 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
 # ------------------------------------------------------------------------------
 user_branch = st.session_state.get("user_branch", None)
 
-def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
-    """Menjalankan query dengan filter cabang otomatis sesuai user login."""
-    if user_branch and user_branch != "ALL":
-        if "FROM pwh.patients" in query and "WHERE" not in query:
-            query = query.replace("FROM pwh.patients", "FROM pwh.patients WHERE cabang = :branch")
-        elif "FROM pwh.patients" in query and "WHERE" in query:
-            query = query.replace("WHERE", "WHERE cabang = :branch AND ")
-        elif "JOIN pwh.patients" in query and "WHERE" not in query:
-            query += " WHERE p.cabang = :branch"
-        elif "JOIN pwh.patients" in query and "WHERE" in query:
-            query = query.replace("WHERE", "WHERE p.cabang = :branch AND ")
-        params = params or {}
-        params["branch"] = user_branch
-    with engine.begin() as conn:
-        return pd.read_sql(text(query), conn, params=params or {})
+
 
 
 @st.cache_resource(show_spinner=False)
@@ -399,68 +389,18 @@ try:
 except Exception as e:
     st.error(f"Gagal konek ke Postgres: {e}")
     st.stop()
-# ----------------------------------------------------------------------------
-# LOGIN VALIDATION DAN FILTER CABANG (Sinkron dengan main.py)
-# ----------------------------------------------------------------------------
-if "auth_ok" not in st.session_state:
-    st.warning("Silakan login melalui halaman utama terlebih dahulu.")
-    st.stop()
-
-user_branch = st.session_state.get("user_branch", None)
-
-def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
-    """Menjalankan query dengan filter cabang otomatis sesuai user login."""
-    if user_branch and user_branch != "ALL":
-        for tbl in [
-            "pwh.patients",
-            "pwh.hemo_diagnoses",
-            "pwh.hemo_inhibitors",
-            "pwh.virus_tests",
-            "pwh.treatment_hospital",
-            "pwh.death",
-            "pwh.contacts"
-        ]:
-            if f"FROM {tbl}" in query and "WHERE" not in query:
-                query = query.replace(f"FROM {tbl}", f"FROM {tbl} WHERE cabang = :branch")
-            elif f"FROM {tbl}" in query and "WHERE" in query:
-                query = query.replace("WHERE", "WHERE cabang = :branch AND ")
-            elif f"JOIN {tbl}" in query and "WHERE" not in query:
-                query += " WHERE cabang = :branch"
-            elif f"JOIN {tbl}" in query and "WHERE" in query:
-                query = query.replace("WHERE", "WHERE cabang = :branch AND ")
-        params = params or {}
-        params["branch"] = user_branch
-    with engine.begin() as conn:
-        return pd.read_sql(text(query), conn, params=params or {})
-
 # ------------------------------------------------------------------------------
 # FILTER CABANG BERDASARKAN LOGIN
 # ------------------------------------------------------------------------------
 user_branch = st.session_state.get("user_branch", None)
 
-def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
-    """Menjalankan query dengan filter cabang otomatis sesuai user login."""
-    if user_branch and user_branch != "ALL":
-        if "FROM pwh.patients" in query and "WHERE" not in query:
-            query = query.replace("FROM pwh.patients", "FROM pwh.patients WHERE cabang = :branch")
-        elif "FROM pwh.patients" in query and "WHERE" in query:
-            query = query.replace("WHERE", "WHERE cabang = :branch AND ")
-        elif "JOIN pwh.patients" in query and "WHERE" not in query:
-            query += " WHERE p.cabang = :branch"
-        elif "JOIN pwh.patients" in query and "WHERE" in query:
-            query = query.replace("WHERE", "WHERE p.cabang = :branch AND ")
-        params = params or {}
-        params["branch"] = user_branch
-    with engine.begin() as conn:
-        return pd.read_sql(text(query), conn, params=params or {})
+
 
 
 # ------------------------------------------------------------------------------
 # Helper eksekusi
 # ------------------------------------------------------------------------------
-def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
-    with engine.begin() as conn:
-        return pd.read_sql(text(query), conn, params=params or {})
+
 
 def run_exec(sql: str, params: dict | None = None):
     with engine.begin() as conn:
