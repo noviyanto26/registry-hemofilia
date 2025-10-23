@@ -340,6 +340,12 @@ def get_engine(dsn: str) -> Engine:
 DSN = _resolve_db_url()
 try:
     engine = get_engine(DSN)
+
+    with engine.connect() as _c:
+        _c.exec_driver_sql("SELECT 1")
+except Exception as e:
+    st.error(f"Gagal konek ke Postgres: {e}")
+    st.stop()
 # ============================================================
 # FILTER CABANG LOGIN
 # ============================================================
@@ -348,11 +354,6 @@ if "user_branch" not in st.session_state:
     st.stop()
 USER_BRANCH = st.session_state.get("user_branch", "ALL")
 
-    with engine.connect() as _c:
-        _c.exec_driver_sql("SELECT 1")
-except Exception as e:
-    st.error(f"Gagal konek ke Postgres: {e}")
-    st.stop()
 
 # ------------------------------------------------------------------------------
 # Helper eksekusi
