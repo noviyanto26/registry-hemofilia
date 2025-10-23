@@ -1,11 +1,17 @@
+# Core Streamlit app
 streamlit>=1.36
+
+# Data processing & plotting
 pandas>=2.2
 SQLAlchemy>=2.0
 psycopg2-binary>=2.9
 xlsxwriter>=3.2
+openpyxl>=3.1
 matplotlib>=3.8
+
+# UI Components
 streamlit-option-menu>=0.3
-openpyxl
-streamlit-option-menu
-passlib
-bcrypt
+
+# Security & password hashing (locked for stability)
+passlib==1.7.4
+bcrypt==3.2.2
