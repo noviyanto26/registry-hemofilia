@@ -15,7 +15,7 @@ st.set_page_config(page_title="PWH Input", page_icon="🩸", layout="wide")
 # ------------------------------------------------------------------------------
 def build_excel_bytes() -> bytes:
     # Ambil semua dataset
-    df_patients = run_df("""
+    df_patients = run_df_branch("""
         SELECT
     p.id,
     p.full_name,
@@ -40,42 +40,41 @@ def build_excel_bytes() -> bytes:
     p.created_at
 FROM pwh.patients p
 LEFT JOIN pwh.patient_age pa ON pa.id = p.id
-WHERE (:branch = 'ALL' OR p.cabang = :branch)
 ORDER BY p.id
 
     """)
-    df_diag = run_df("""
+    df_diag = run_df_branch("""
         SELECT d.id, d.patient_id, p.full_name, d.hemo_type, d.severity, d.diagnosed_on, d.source
         FROM pwh.hemo_diagnoses d JOIN pwh.patients p ON p.id = d.patient_id
         ORDER BY d.patient_id, d.id
     """)
-    df_inh = run_df("""
+    df_inh = run_df_branch("""
         SELECT i.id, i.patient_id, p.full_name, i.factor, i.titer_bu, i.measured_on, i.lab
         FROM pwh.hemo_inhibitors i JOIN pwh.patients p ON p.id = i.patient_id
         ORDER BY i.patient_id, i.measured_on NULLS LAST, i.id
     """)
-    df_virus = run_df("""
+    df_virus = run_df_branch("""
         SELECT v.id, v.patient_id, p.full_name, v.test_type, v.result, v.tested_on, v.lab
         FROM pwh.virus_tests v JOIN pwh.patients p ON p.id = v.patient_id
         ORDER BY v.patient_id, v.tested_on NULLS LAST, v.id
     """)
-    df_hospital = run_df("""
+    df_hospital = run_df_branch("""
         SELECT th.id, th.patient_id, p.full_name, th.name_hospital, th.city_hospital, th.province_hospital,
                th.date_of_visit, th.doctor_in_charge, th.treatment_type, th.care_services, th.frequency, th.dose, th.product, th.merk
         FROM pwh.treatment_hospital th JOIN pwh.patients p ON p.id = th.patient_id
         ORDER BY th.patient_id, th.id
     """)
-    df_death = run_df("""
+    df_death = run_df_branch("""
         SELECT d.id, d.patient_id, p.full_name, d.cause_of_death, d.year_of_death
         FROM pwh.death d JOIN pwh.patients p ON p.id = d.patient_id
         ORDER BY d.patient_id, d.id
     """)
-    df_contacts = run_df("""
+    df_contacts = run_df_branch("""
         SELECT c.id, c.patient_id, p.full_name, c.relation, c.name, c.phone, c.is_primary
         FROM pwh.contacts c JOIN pwh.patients p ON p.id = c.patient_id
         ORDER BY c.patient_id, c.id
     """)
-    df_summary = run_df("""SELECT * FROM pwh.patient_summary ORDER BY id""")
+    df_summary = run_df_branch("""SELECT * FROM pwh.patient_summary ORDER BY id""")
     
     # --- FIX: Hapus Timezone dari Datetime Columns ---
     # Excel (via xlsxwriter) tidak mendukung datetime yang 'timezone-aware' (misal: UTC)
@@ -205,7 +204,7 @@ def build_bulk_template_bytes() -> bytes:
             ("Nama RS", "text"), ("Kota RS", "text"), ("Provinsi RS", "text"),
             ("Tanggal Kunjungan", "date"), ("DPJP", "text"),
             ("Jenis Penanganan", ("list", "treatment_types_vals")), # Use new named range
-            ("Layanan Rawat", ("list", "care_services_vals")),     # Use new named range
+            ("Layanan Rawat", ("list", "care_services_vals")),    # Use new named range
             ("Frekuensi", "text"), ("Dosis", "text"),
             ("Produk", ("list", "products_vals")),                # Use new named range
             ("Merk", "text"),
@@ -332,6 +331,27 @@ def _resolve_db_url() -> str:
     if env: return env
     st.error('DATABASE_URL tidak ditemukan. Isi `.streamlit/secrets.toml` dengan format:\n''DATABASE_URL = "postgresql+psycopg2://USER:PASSWORD@127.0.0.1:5432/pwhdb"')
     st.stop()
+# ------------------------------------------------------------------------------
+# FILTER CABANG BERDASARKAN LOGIN
+# ------------------------------------------------------------------------------
+user_branch = st.session_state.get("user_branch", None)
+
+def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
+    """Menjalankan query dengan filter cabang otomatis sesuai user login."""
+    if user_branch and user_branch != "ALL":
+        if "FROM pwh.patients" in query and "WHERE" not in query:
+            query = query.replace("FROM pwh.patients", "FROM pwh.patients WHERE cabang = :branch")
+        elif "FROM pwh.patients" in query and "WHERE" in query:
+            query = query.replace("WHERE", "WHERE cabang = :branch AND ")
+        elif "JOIN pwh.patients" in query and "WHERE" not in query:
+            query += " WHERE p.cabang = :branch"
+        elif "JOIN pwh.patients" in query and "WHERE" in query:
+            query = query.replace("WHERE", "WHERE p.cabang = :branch AND ")
+        params = params or {}
+        params["branch"] = user_branch
+    with engine.begin() as conn:
+        return pd.read_sql(text(query), conn, params=params or {})
+
 
 @st.cache_resource(show_spinner=False)
 def get_engine(dsn: str) -> Engine:
@@ -340,25 +360,37 @@ def get_engine(dsn: str) -> Engine:
 DSN = _resolve_db_url()
 try:
     engine = get_engine(DSN)
-
     with engine.connect() as _c:
         _c.exec_driver_sql("SELECT 1")
 except Exception as e:
     st.error(f"Gagal konek ke Postgres: {e}")
     st.stop()
-# ============================================================
-# FILTER CABANG LOGIN
-# ============================================================
-if "user_branch" not in st.session_state:
-    st.error("Anda belum login melalui halaman utama.")
-    st.stop()
-USER_BRANCH = st.session_state.get("user_branch", "ALL")
+# ------------------------------------------------------------------------------
+# FILTER CABANG BERDASARKAN LOGIN
+# ------------------------------------------------------------------------------
+user_branch = st.session_state.get("user_branch", None)
+
+def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
+    """Menjalankan query dengan filter cabang otomatis sesuai user login."""
+    if user_branch and user_branch != "ALL":
+        if "FROM pwh.patients" in query and "WHERE" not in query:
+            query = query.replace("FROM pwh.patients", "FROM pwh.patients WHERE cabang = :branch")
+        elif "FROM pwh.patients" in query and "WHERE" in query:
+            query = query.replace("WHERE", "WHERE cabang = :branch AND ")
+        elif "JOIN pwh.patients" in query and "WHERE" not in query:
+            query += " WHERE p.cabang = :branch"
+        elif "JOIN pwh.patients" in query and "WHERE" in query:
+            query = query.replace("WHERE", "WHERE p.cabang = :branch AND ")
+        params = params or {}
+        params["branch"] = user_branch
+    with engine.begin() as conn:
+        return pd.read_sql(text(query), conn, params=params or {})
 
 
 # ------------------------------------------------------------------------------
 # Helper eksekusi
 # ------------------------------------------------------------------------------
-def run_df(query: str, params: dict | None = None) -> pd.DataFrame:
+def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
     with engine.begin() as conn:
         return pd.read_sql(text(query), conn, params=params or {})
 
@@ -373,7 +405,7 @@ def run_exec(sql: str, params: dict | None = None):
 def fetch_enum_vals(enum_typename: str) -> list[str]:
     q = "SELECT e.enumlabel FROM pg_type t JOIN pg_enum e ON t.oid = e.enumtypid JOIN pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = 'pwh' AND t.typname = :typ ORDER BY e.enumsortorder;"
     try:
-        df = run_df(q, {"typ": enum_typename})
+        df = run_df_branch(q, {"typ": enum_typename})
         return df["enumlabel"].tolist()
     except Exception:
         return []
@@ -381,7 +413,7 @@ def fetch_enum_vals(enum_typename: str) -> list[str]:
 @st.cache_data(show_spinner=False)
 def fetch_occupations_list() -> list[str]:
     try:
-        df = run_df("SELECT name FROM pwh.occupations ORDER BY name;")
+        df = run_df_branch("SELECT name FROM pwh.occupations ORDER BY name;")
         if not df.empty: return [""] + df["name"].dropna().astype(str).tolist()
     except Exception: pass
     return ["","Tidak bekerja","Nelayan","Petani","PNS/TNI/Polri","Karyawan Swasta","Wiraswasta","Pensiunan"]
@@ -410,7 +442,7 @@ def fetch_all_wilayah_details() -> pd.DataFrame:
         ORDER BY
             full_display;
         """
-        df = run_df(q)
+        df = run_df_branch(q)
         if not df.empty:
             return df
     except Exception as e:
@@ -432,7 +464,7 @@ def fetch_hmhi_branches() -> pd.DataFrame:
     try:
         # Menggunakan schema pwh.hmhi_cabang sesuai permintaan
         q = "SELECT DISTINCT cabang, kota_cakupan FROM pwh.hmhi_cabang WHERE cabang IS NOT NULL ORDER BY cabang;"
-        df = run_df(q)
+        df = run_df_branch(q)
         if not df.empty:
             return df
     except Exception as e:
@@ -449,7 +481,7 @@ def fetch_hmhi_branches() -> pd.DataFrame:
 def fetch_hospitals() -> list[str]:
     try:
         q = "SELECT CONCAT_WS(' - ', nama_rs, kota, provinsi) as hospital_display FROM public.rumah_sakit ORDER BY hospital_display;"
-        df = run_df(q)
+        df = run_df_branch(q)
         if not df.empty:
             return [""] + df["hospital_display"].tolist()
     except Exception as e:
@@ -461,7 +493,7 @@ def fetch_hospitals() -> list[str]:
 @st.cache_data(show_spinner="Memuat daftar pasien...")
 def get_all_patients_for_selection():
     """Mengambil daftar pasien dari DB untuk digunakan di selectbox."""
-    return run_df("SELECT id, full_name FROM pwh.patients ORDER BY full_name;")
+    return run_df_branch("SELECT id, full_name FROM pwh.patients ORDER BY full_name;")
 
 # ------------------------------------------------------------------------------
 # Definisi Pilihan Statis & Dinamis
@@ -471,11 +503,11 @@ RHESUS       = [""] + (fetch_enum_vals("rhesus_enum")        or ["+","-"])
 GENDERS      = ["", "Laki-laki", "Perempuan"]
 EDUCATION_LEVELS = [""] + (fetch_enum_vals("education_enum") or ["Tidak sekolah", "SD", "SMP", "SMA/SMK", "Diploma", "S1", "S2", "S3"])
 HEMO_TYPES   = fetch_enum_vals("hemo_type_enum")      or ["A","B","vWD","Other"]
-SEVERITIES   = fetch_enum_vals("severity_enum")           or ["Ringan","Sedang","Berat","Tidak diketahui"]
+SEVERITIES   = fetch_enum_vals("severity_enum")         or ["Ringan","Sedang","Berat","Tidak diketahui"]
 INHIB_FACTORS= fetch_enum_vals("inhibitor_factor_enum") or ["FVIII","FIX"]
 VIRUS_TESTS  = fetch_enum_vals("virus_test_enum")       or ["HBsAg","Anti-HCV","HIV"]
 TEST_RESULTS = fetch_enum_vals("test_result_enum")    or ["positive","negative","indeterminate","unknown"]
-RELATIONS    = fetch_enum_vals("relation_enum")           or ["ayah","ibu","wali","pasien","lainnya"]
+RELATIONS    = fetch_enum_vals("relation_enum")         or ["ayah","ibu","wali","pasien","lainnya"]
 PREFERRED_SEVERITY_ORDER = ["Ringan", "Sedang", "Berat", "Tidak diketahui"]
 SEVERITY_CHOICES = PREFERRED_SEVERITY_ORDER if all(x in SEVERITIES for x in PREFERRED_SEVERITY_ORDER) else SEVERITIES
 TREATMENT_TYPES = ["", "Prophylaxis", "On Demand"]
@@ -674,7 +706,7 @@ def import_bulk_excel(file) -> dict:
         inserted_patients.append((pid, payload["full_name"]))
 
     map_new = {name.lower(): pid for pid, name in inserted_patients}
-    df_all_pat = run_df("SELECT id, full_name FROM pwh.patients")
+    df_all_pat = run_df_branch("SELECT id, full_name FROM pwh.patients")
     map_db = {str(n).lower(): int(i) for i, n in zip(df_all_pat["id"], df_all_pat["full_name"])}
 
     def _resolve_pid(row):
@@ -690,9 +722,9 @@ def import_bulk_excel(file) -> dict:
     results = {"Pasien": len(inserted_patients)}
     sheet_configs = {
         "Diagnosa": ("diagnosa", # nama sheet lowercase
-                        ["patient_id","full_name","hemo_type","severity","diagnosed_on","source"], # nama kolom internal
-                        MAP_DIAG, # Peta pembalikan
-                        lambda r, pid: insert_diagnosis(pid, _safe_str(r.get("hemo_type")), _safe_str(r.get("severity")), _to_date(r.get("diagnosed_on")), _safe_str(r.get("source")))),
+                       ["patient_id","full_name","hemo_type","severity","diagnosed_on","source"], # nama kolom internal
+                       MAP_DIAG, # Peta pembalikan
+                       lambda r, pid: insert_diagnosis(pid, _safe_str(r.get("hemo_type")), _safe_str(r.get("severity")), _to_date(r.get("diagnosed_on")), _safe_str(r.get("source")))),
         "Inhibitor": ("inhibitor",
                         ["patient_id","full_name","factor","titer_bu","measured_on","lab"],
                         MAP_INH,
@@ -712,18 +744,18 @@ def import_bulk_excel(file) -> dict:
                           })
                          ),
         "Kematian": ("kematian",
-                        ["patient_id", "full_name", "cause_of_death", "year_of_death"],
-                        MAP_DEATH,
-                        lambda r, pid: insert_death_record({
-                            "patient_id": pid,
-                            "cause_of_death": _safe_str(r.get("cause_of_death")),
-                            "year_of_death": pd.to_numeric(r.get("year_of_death"), errors='coerce')
-                        })
-                       ),
+                       ["patient_id", "full_name", "cause_of_death", "year_of_death"],
+                       MAP_DEATH,
+                       lambda r, pid: insert_death_record({
+                           "patient_id": pid,
+                           "cause_of_death": _safe_str(r.get("cause_of_death")),
+                           "year_of_death": pd.to_numeric(r.get("year_of_death"), errors='coerce')
+                       })
+                      ),
         "Kontak": ("kontak",
-                        ["patient_id","full_name","relation","name","phone","is_primary"],
-                        MAP_CONTACT,
-                        lambda r, pid: insert_contact(pid, _safe_str(r.get("relation")), _safe_str(r.get("name")), _safe_str(r.get("phone")), _to_bool(r.get("is_primary")))),
+                       ["patient_id","full_name","relation","name","phone","is_primary"],
+                       MAP_CONTACT,
+                       lambda r, pid: insert_contact(pid, _safe_str(r.get("relation")), _safe_str(r.get("name")), _safe_str(r.get("phone")), _to_bool(r.get("is_primary")))),
     }
 
     for key, (sheet_name_lowercase, internal_cols, reverse_map, insert_func) in sheet_configs.items():
@@ -760,7 +792,7 @@ def clear_session_state(prefix):
         del st.session_state[k]
 
 def auto_pick_latest_for_edit(df, state_key: str, table_fullname: str,
-                              id_col: str = "id", order_cols: list[str] | None = None):
+                                id_col: str = "id", order_cols: list[str] | None = None):
     # Abaikan jika tidak ada data
     if df is None or getattr(df, "empty", True):
         return
@@ -780,7 +812,7 @@ def set_editing_state(state_key, data_id, table_name):
     if not data_id:
         return
     query = f"SELECT * FROM {table_name} WHERE id = {int(data_id)};"
-    data = run_df(query)
+    data = run_df_branch(query)
     if not data.empty:
         st.session_state[state_key] = data.to_dict('records')[0]
     else:
@@ -968,9 +1000,9 @@ with tab_pat:
             if pat_data:
                 # Logika update
                 q_check_nik = "SELECT id FROM pwh.patients WHERE nik = :nik AND id != :current_id"
-                existing_nik = run_df(q_check_nik, {"nik": payload["nik"], "current_id": pat_data['id']})
+                existing_nik = run_df_branch(q_check_nik, {"nik": payload["nik"], "current_id": pat_data['id']})
                 q_check_name = "SELECT id FROM pwh.patients WHERE lower(full_name) = lower(:name) AND id != :current_id"
-                existing_name = run_df(q_check_name, {"name": payload["full_name"], "current_id": pat_data['id']})
+                existing_name = run_df_branch(q_check_name, {"name": payload["full_name"], "current_id": pat_data['id']})
                 if not existing_nik.empty:
                     st.error(f"NIK '{payload['nik']}' sudah digunakan oleh pasien lain (ID: {existing_nik.iloc[0]['id']}).")
                 elif not existing_name.empty:
@@ -987,9 +1019,9 @@ with tab_pat:
             else:
                 # Logika insert
                 q_check_nik = "SELECT id FROM pwh.patients WHERE nik = :nik"
-                existing_nik = run_df(q_check_nik, {"nik": payload["nik"]})
+                existing_nik = run_df_branch(q_check_nik, {"nik": payload["nik"]})
                 q_check_name = "SELECT id FROM pwh.patients WHERE lower(full_name) = lower(:name)"
-                existing_name = run_df(q_check_name, {"name": payload["full_name"]})
+                existing_name = run_df_branch(q_check_name, {"name": payload["full_name"]})
                 if not existing_nik.empty:
                     st.error(f"NIK '{payload['nik']}' sudah ada di database dengan ID: {existing_nik.iloc[0]['id']}. Gunakan NIK lain.")
                 elif not existing_name.empty:
@@ -1010,7 +1042,7 @@ with tab_pat:
     if st.button("Cari Pasien", key="search_pat_button"):
         clear_session_state('patient_to_edit') 
         if search_name_pat:
-            results_df = run_df("SELECT id, full_name, birth_date FROM pwh.patients WHERE full_name ILIKE :name", {"name": f"%{search_name_pat}%"})
+            results_df = run_df_branch("SELECT id, full_name, birth_date FROM pwh.patients WHERE full_name ILIKE :name", {"name": f"%{search_name_pat}%"})
             if results_df.empty:
                 st.warning("Pasien tidak ditemukan.")
                 clear_session_state('patient_matches')
@@ -1036,7 +1068,7 @@ with tab_pat:
             clear_session_state('patient_matches')
             st.rerun()
 
-    dfp = run_df("""
+    dfp = run_df_branch("""
 SELECT
     p.id,
     p.full_name,
@@ -1060,7 +1092,6 @@ SELECT
     p.created_at
 FROM pwh.patients p
 LEFT JOIN pwh.patient_age pa ON pa.id = p.id
-WHERE (:branch = 'ALL' OR p.cabang = :branch)
 ORDER BY p.id DESC
 LIMIT 200;
 
@@ -1177,7 +1208,7 @@ with tab_diag:
                 JOIN pwh.patients p ON p.id = d.patient_id
                 WHERE p.full_name ILIKE :name ORDER BY d.id DESC
             """
-            results_df = run_df(q, {"name": f"%{search_name_diag}%"})
+            results_df = run_df_branch(q, {"name": f"%{search_name_diag}%"})
 
             if results_df.empty:
                 st.warning("Riwayat diagnosis tidak ditemukan untuk pasien dengan nama tersebut.")
@@ -1211,7 +1242,7 @@ with tab_diag:
         params['name'] = f"%{st.session_state.diag_selected_patient_name}%"
     query_diag += " ORDER BY d.id DESC LIMIT 300;"
     
-    df_diag = run_df(query_diag, params)
+    df_diag = run_df_branch(query_diag, params)
 
     if not df_diag.empty:
         df_diag_display = df_diag.drop(columns=['id', 'patient_id'], errors='ignore')
@@ -1267,7 +1298,7 @@ with tab_inh:
             st.success("Riwayat inhibitor ditambahkan.")
             st.rerun()
         else:
-            if not inh_data: st.warning("Silakan pilih pasien terlebih dahulu.")
+                if not inh_data: st.warning("Silakan pilih pasien terlebih dahulu.")
 
     st.markdown("---")
     st.markdown("### 📋 Data Inhibitor Terbaru")
@@ -1286,7 +1317,7 @@ with tab_inh:
                 JOIN pwh.patients p ON p.id = i.patient_id
                 WHERE p.full_name ILIKE :name ORDER BY i.id DESC
             """
-            results_df = run_df(q, {"name": f"%{search_name_inh}%"})
+            results_df = run_df_branch(q, {"name": f"%{search_name_inh}%"})
 
             if results_df.empty:
                 st.warning("Riwayat inhibitor tidak ditemukan.")
@@ -1319,7 +1350,7 @@ with tab_inh:
         query_inh += " WHERE p.full_name ILIKE :name"
         params_inh['name'] = f"%{st.session_state.inh_selected_patient_name}%"
     query_inh += " ORDER BY i.id DESC LIMIT 500;"
-    df_inh = run_df(query_inh, params_inh)
+    df_inh = run_df_branch(query_inh, params_inh)
 
     if not df_inh.empty:
         df_inh_display = df_inh.drop(columns=['id', 'patient_id'], errors='ignore')
@@ -1395,7 +1426,7 @@ with tab_virus:
                 JOIN pwh.patients p ON p.id = v.patient_id
                 WHERE p.full_name ILIKE :name ORDER BY v.id DESC
             """
-            results_df = run_df(q, {"name": f"%{search_name_virus}%"})
+            results_df = run_df_branch(q, {"name": f"%{search_name_virus}%"})
 
             if results_df.empty:
                 st.warning("Riwayat tes virus tidak ditemukan.")
@@ -1429,7 +1460,7 @@ with tab_virus:
         params_virus['name'] = f"%{st.session_state.virus_selected_patient_name}%"
     query_virus += " ORDER BY v.id DESC LIMIT 500;"
     
-    df_virus = run_df(query_virus, params_virus)
+    df_virus = run_df_branch(query_virus, params_virus)
 
     if not df_virus.empty:
         df_virus_display = df_virus.copy()
@@ -1539,7 +1570,7 @@ with tab_hospital:
                 JOIN pwh.patients p ON p.id = th.patient_id
                 WHERE p.full_name ILIKE :name ORDER BY th.id DESC
             """
-            results_df = run_df(q, {"name": f"%{search_name_hosp}%"})
+            results_df = run_df_branch(q, {"name": f"%{search_name_hosp}%"})
 
             if results_df.empty:
                 st.warning("Riwayat penanganan RS tidak ditemukan.")
@@ -1573,7 +1604,7 @@ with tab_hospital:
         params_hosp['name'] = f"%{st.session_state.hosp_selected_patient_name}%"
     query_hosp += " ORDER BY th.id DESC LIMIT 300;"
 
-    df_th = run_df(query_hosp, params_hosp)
+    df_th = run_df_branch(query_hosp, params_hosp)
         
     if not df_th.empty:
         df_th_display = df_th.drop(columns=['id', 'patient_id'], errors='ignore')
@@ -1648,7 +1679,7 @@ with tab_death:
                 JOIN pwh.patients p ON p.id = d.patient_id
                 WHERE p.full_name ILIKE :name
             """
-            results_df = run_df(q, {"name": f"%{search_name_death}%"})
+            results_df = run_df_branch(q, {"name": f"%{search_name_death}%"})
             if results_df.empty:
                 st.warning("Data kematian tidak ditemukan.")
             else:
@@ -1665,7 +1696,7 @@ with tab_death:
         params_death['name'] = f"%{st.session_state.death_selected_patient_name}%"
     query_death += " ORDER BY d.id DESC;"
     
-    df_death = run_df(query_death, params_death)
+    df_death = run_df_branch(query_death, params_death)
 
     if not df_death.empty:
         df_death_display = df_death.drop(columns=['id', 'patient_id'], errors='ignore')
@@ -1713,7 +1744,7 @@ with tab_contacts:
         if not name.strip():
             st.error("Nama Kontak wajib diisi.")
         elif not relation:
-            st.error("Relasi wajib diisi.")
+                st.error("Relasi wajib diisi.")
         else:
             payload = {"relation": relation, "name": name, "phone": (phone or "").strip() or None, "is_primary": is_primary}
             if cont_data:
@@ -1745,7 +1776,7 @@ with tab_contacts:
                 JOIN pwh.patients p ON p.id = c.patient_id
                 WHERE p.full_name ILIKE :name ORDER BY c.id DESC
             """
-            results_df = run_df(q, {"name": f"%{search_name_cont}%"})
+            results_df = run_df_branch(q, {"name": f"%{search_name_cont}%"})
 
             if results_df.empty:
                 st.warning("Kontak tidak ditemukan.")
@@ -1778,7 +1809,7 @@ with tab_contacts:
         query_cont += " WHERE p.full_name ILIKE :name"
         params_cont['name'] = f"%{st.session_state.cont_selected_patient_name}%"
     query_cont += " ORDER BY c.id DESC LIMIT 500;"
-    df_contacts = run_df(query_cont, params_cont)
+    df_contacts = run_df_branch(query_cont, params_cont)
 
     if not df_contacts.empty:
         df_contacts_display = df_contacts.drop(columns=['id', 'patient_id'], errors='ignore')
@@ -1792,7 +1823,7 @@ with tab_contacts:
 # Ringkasan
 with tab_view:
     st.subheader("📄 Ringkasan Pasien") # Diubah ke 'Ringkasan Pasien'
-    df = run_df("SELECT * FROM pwh.patient_summary ORDER BY id DESC LIMIT 300;")
+    df = run_df_branch("SELECT * FROM pwh.patient_summary ORDER BY id DESC LIMIT 300;")
     if df.empty:
         st.info("Belum ada data.")
     else:
