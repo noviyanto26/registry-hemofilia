@@ -1,4 +1,4 @@
-# main.py (gabungan - Versi Database Auth)
+# main.py (gabungan - Versi Database Auth - DIPERBAIKI)
 import runpy
 import os  # <-- Tambahan
 import streamlit as st
@@ -22,15 +22,20 @@ st.set_page_config(
 def _resolve_db_url() -> str:
     """Mencari DATABASE_URL dari st.secrets atau environment variables."""
     try:
-        sec = st.secrets.get("DATABASE_URL", "")
-        if sec: return sec
+        # --- PERBAIKAN: Membaca dari dalam blok [secrets] ---
+        sec = st.secrets.get("secrets", {}).get("DATABASE_URL", "")
+        if sec: 
+            return sec
     except Exception:
         pass
-    env = os.environ.get("DATABASE_URL")
-    if env: return env
     
-    st.error('DATABASE_URL tidak ditemukan. Mohon atur di `.streamlit/secrets.toml` atau sebagai environment variable.')
-    st.code('DATABASE_URL = "postgresql://USER:PASSWORD@HOST:PORT/DATABASE"')
+    env = os.environ.get("DATABASE_URL")
+    if env: 
+        return env
+    
+    # Error jika tidak ditemukan
+    st.error('DATABASE_URL tidak ditemukan di Streamlit Secrets.')
+    st.caption("Pastikan Anda sudah menambahkan `DATABASE_URL` ke dalam blok `[secrets]` di Streamlit Cloud.")
     return None
 
 @st.cache_resource(show_spinner="Menghubungkan ke database...")
@@ -49,7 +54,11 @@ def get_engine(dsn: str) -> Engine:
 
 # --- Inisialisasi Engine & Hashing ---
 DB_URL = _resolve_db_url()
-DB_ENGINE = get_engine(DB_URL)
+if DB_URL:
+    DB_ENGINE = get_engine(DB_URL)
+else:
+    st.stop() # Hentikan jika DB_URL tidak ditemukan
+
 # Konteks untuk hashing password
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -77,25 +86,36 @@ def check_password() -> bool:
             return False
 
         try:
+            # --- PERBAIKAN: Tambahkan .strip() pada username ---
+            username_cleaned = username.strip()
+            # --- SELESAI PERBAIKAN ---
+
             with DB_ENGINE.connect() as conn:
-                # 1. Cari user di database
+                # 1. Cari user di database (gunakan username yang sudah dibersihkan)
                 query = text("SELECT username, hashed_password, cabang FROM pwh.users WHERE username = :user")
-                result = conn.execute(query, {"user": username})
+                result = conn.execute(query, {"user": username_cleaned}) # <-- Variabel diubah
                 user_data = result.mappings().fetchone() # Ambil data sbg dictionary
 
             if not user_data:
                 st.error("Username atau password salah.")
                 return False
 
-            # 2. Verifikasi hash password
-            if pwd_context.verify(password, user_data['hashed_password']):
+            # --- PERBAIKAN KUNCI DI SINI ---
+            # Kita harus memotong password input ke 72 karakter,
+            # sama seperti yang kita lakukan saat membuat hash
+            password_to_check = password[:72]
+            
+            # 2. Verifikasi hash password (menggunakan password yang sudah dipotong)
+            if pwd_context.verify(password_to_check, user_data['hashed_password']):
+            # --- SELESAI PERBAIKAN ---
+            
                 # 3. Sukses! Simpan data ke session
                 st.session_state.auth_ok = True
                 st.session_state.username = user_data['username']
                 st.session_state.user_branch = user_data['cabang'] # Ini adalah kuncinya
                 
-                st.success(f"Selamat datang, **{user_data['username']}**!")
-                return True
+                # Kita perlu rerun agar st.success muncul di halaman utama
+                st.rerun()
             else:
                 st.error("Username atau password salah.")
                 return False
@@ -119,7 +139,7 @@ MENU_ITEMS = {
     "🏥 RS Perawatan Hemofilia": "04_rs_hemofilia.py",
     "📚 Rekap Pendidikan & Pekerjaan": "05_rekap_pend_pekerjaan.py",
     "🗺️ Distribusi Pasien per Kota (Berdasarkan RS Penangan)": "06_distribusi_pasien.py",
-    "🗺️ Rekapitulasi per Provinsi (Berdasarkan Domisili)": "07_rekap_propinsi.py",
+    "🗺️ Rekapitulasi per Provinsi (Berdasarkan Domisi)": "07_rekap_propinsi.py",
 }
 
 ICONS = [
@@ -140,6 +160,11 @@ def main():
     # Cek login
     if not check_password():
         return
+        
+    # Tampilkan pesan sukses SETELAH login berhasil dan di-rerun
+    if "auth_ok" in st.session_state and not st.session_state.get("welcome_message_shown", False):
+        st.success(f"Selamat datang, **{st.session_state.username}**!")
+        st.session_state.welcome_message_shown = True # Tandai agar tidak muncul lagi
 
     # Sidebar header + tombol logout
     with st.sidebar:
@@ -181,3 +206,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
