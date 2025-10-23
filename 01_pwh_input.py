@@ -15,19 +15,35 @@ st.set_page_config(page_title="PWH Input", page_icon="🩸", layout="wide")
 # ------------------------------------------------------------------------------
 def build_excel_bytes() -> bytes:
     # Ambil semua dataset
-    df_patients = run_df("""
-        SELECT
-    p.id, p.full_name, p.birth_place, p.birth_date, p.nik,
-    COALESCE(pa.age_years, EXTRACT(YEAR FROM age(CURRENT_DATE, p.birth_date))) AS age_years,
-    p.blood_group, p.rhesus, p.gender, p.occupation, p.education,
-    p.address, p.village, p.district, p.phone, p.province, p.city,
-    p.cabang, p.kota_cakupan, p.created_at
-FROM pwh.patients p
-LEFT JOIN pwh.patient_age pa ON pa.id = p.id
-WHERE (:branch = 'ALL' OR p.cabang = :branch)
-ORDER BY p.id DESC
+    dfp = run_df("""
+    SELECT
+        p.id,
+        p.full_name,
+        p.birth_place,
+        p.birth_date,
+        p.nik,
+        COALESCE(pa.age_years, EXTRACT(YEAR FROM age(CURRENT_DATE, p.birth_date))) AS age_years,
+        p.blood_group,
+        p.rhesus,
+        p.gender,
+        p.occupation,
+        p.education,
+        p.address,
+        p.village,
+        p.district,
+        p.phone,
+        p.province,
+        p.city,
+        p.cabang,
+        p.kota_cakupan,
+        p.created_at
+    FROM pwh.patients p
+    LEFT JOIN pwh.patient_age pa ON pa.id = p.id
+    WHERE (:branch = 'ALL' OR p.cabang = :branch)
+    ORDER BY p.id DESC
+    LIMIT 200;
+""", {"branch": st.session_state.get("user_branch", "ALL")})
 
-    """)
     df_diag = run_df("""
         SELECT d.id, d.patient_id, p.full_name, d.hemo_type, d.severity, d.diagnosed_on, d.source
         FROM pwh.hemo_diagnoses d JOIN pwh.patients p ON p.id = d.patient_id
