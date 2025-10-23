@@ -17,31 +17,15 @@ def build_excel_bytes() -> bytes:
     # Ambil semua dataset
     df_patients = run_df("""
         SELECT
-    p.id,
-    p.full_name,
-    p.birth_place,
-    p.birth_date,
-    p.nik,
+    p.id, p.full_name, p.birth_place, p.birth_date, p.nik,
     COALESCE(pa.age_years, EXTRACT(YEAR FROM age(CURRENT_DATE, p.birth_date))) AS age_years,
-    p.blood_group,
-    p.rhesus,
-    p.gender,
-    p.occupation,
-    p.education,
-    p.address,
-    p.village,
-    p.district,
-    p.phone,
-    p.province,
-    p.city,
-    p.cabang, 
-    p.kota_cakupan,
-    p.note,
-    p.created_at
+    p.blood_group, p.rhesus, p.gender, p.occupation, p.education,
+    p.address, p.village, p.district, p.phone, p.province, p.city,
+    p.cabang, p.kota_cakupan, p.created_at
 FROM pwh.patients p
-WHERE (:branch = 'ALL' OR p.cabang = :branch)
 LEFT JOIN pwh.patient_age pa ON pa.id = p.id
-ORDER BY p.id
+WHERE (:branch = 'ALL' OR p.cabang = :branch)
+ORDER BY p.id DESC
 
     """)
     df_diag = run_df("""
