@@ -358,13 +358,12 @@ except Exception as e:
 # FILTER CABANG BERDASARKAN LOGIN
 # (INI ADALAH SATU-SATUNYA DEFINISI run_df_branch YANG BENAR)
 # ------------------------------------------------------------------------------
-user_branch = st.session_state.get("user_branch", None)
+# user_branch = st.session_state.get("user_branch", None) # Baris ini sudah ada di atasnya
 
 def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
     """Menjalankan query dengan filter cabang otomatis sesuai user login."""
     
     # Ambil user_branch dari session state SETIAP KALI FUNGSI DIPANGGIL
-    # Ini memastikan nilainya selalu update
     current_user_branch = st.session_state.get("user_branch", None)
     
     # Salin query asli
@@ -372,27 +371,59 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
     query_upper = query.upper()
     
     if current_user_branch and current_user_branch != "ALL":
-        # Pola 1: FROM pwh.patients
-        if "FROM PWH.PATIENTS" in query_upper:
-            if "WHERE" not in query_upper:
-                # Ganti 'FROM pwh.patients' -> 'FROM pwh.patients WHERE cabang = :branch'
-                query_filtered = query.replace("FROM pwh.patients", "FROM pwh.patients WHERE cabang = :branch", 1).replace("FROM PWH.PATIENTS", "FROM pwh.patients WHERE cabang = :branch", 1)
-            else:
-                # Ganti 'WHERE' -> 'WHERE cabang = :branch AND '
-                query_filtered = query.replace("WHERE", "WHERE cabang = :branch AND ", 1).replace("where", "WHERE cabang = :branch AND ", 1)
         
-        # Pola 2: JOIN pwh.patients p (asumsi alias 'p')
-        elif "JOIN PWH.PATIENTS P" in query_upper:
-            if "WHERE" not in query_upper:
-                # Tambah 'WHERE p.cabang = :branch' di akhir
-                query_filtered += " WHERE p.cabang = :branch"
-            else:
-                # Ganti 'WHERE' -> 'WHERE p.cabang = :branch AND '
-                query_filtered = query.replace("WHERE", "WHERE p.cabang = :branch AND ", 1).replace("where", "WHERE p.cabang = :branch AND ", 1)
-
         # Siapkan params jika belum ada
         params = params or {}
         params["branch"] = current_user_branch
+
+        # --- LOGIKA BARU YANG DIPERBAIKI ---
+        
+        # Pola 1: Query menggunakan 'JOIN pwh.patients p'
+        if "JOIN PWH.PATIENTS P" in query_upper:
+            if "WHERE" not in query_upper:
+                query_filtered += " WHERE p.cabang = :branch"
+            else:
+                # Ganti 'WHERE' pertama
+                query_filtered = query.replace("WHERE", "WHERE p.cabang = :branch AND ", 1).replace("where", "WHERE p.cabang = :branch AND ", 1)
+        
+        # Pola 2: Query menggunakan 'FROM pwh.patients p' (INI YANG MEMPERBAIKI ERROR)
+        elif "FROM PWH.PATIENTS P" in query_upper:
+            if "WHERE" not in query_upper:
+                # Sisipkan 'WHERE p.cabang = :branch' sebelum klausa berikutnya
+                if "LEFT JOIN" in query_upper:
+                     query_filtered = query.replace("LEFT JOIN", "WHERE p.cabang = :branch LEFT JOIN", 1).replace("left join", "WHERE p.cabang = :branch LEFT JOIN", 1)
+                elif "ORDER BY" in query_upper:
+                     query_filtered = query.replace("ORDER BY", "WHERE p.cabang = :branch ORDER BY", 1).replace("order by", "WHERE p.cabang = :branch ORDER BY", 1)
+                elif "LIMIT" in query_upper:
+                    query_filtered = query.replace("LIMIT", "WHERE p.cabang = :branch LIMIT", 1).replace("limit", "WHERE p.cabang = :branch LIMIT", 1)
+                else:
+                     query_filtered += " WHERE p.cabang = :branch"
+            else:
+                # Ganti 'WHERE' pertama
+                query_filtered = query.replace("WHERE", "WHERE p.cabang = :branch AND ", 1).replace("where", "WHERE p.cabang = :branch AND ", 1)
+
+        # Pola 3: Query menggunakan 'FROM pwh.patients' (tanpa alias p, atau dengan alias lain seperti 't')
+        elif "FROM PWH.PATIENTS" in query_upper:
+            # Tentukan alias jika ada (misal 't' dari set_editing_state)
+            alias = ""
+            if "FROM PWH.PATIENTS T" in query_upper:
+                alias = "t." # perlu 't.'
+            
+            if "WHERE" not in query_upper:
+                # Ganti 'FROM pwh.patients'
+                replace_str = f"FROM pwh.patients WHERE {alias}cabang = :branch"
+                if "FROM PWH.PATIENTS T" in query_upper:
+                     replace_str = f"FROM pwh.patients t WHERE {alias}cabang = :branch"
+                     query_filtered = query.replace("FROM pwh.patients t", replace_str, 1).replace("FROM PWH.PATIENTS T", replace_str, 1)
+                else:
+                     query_filtered = query.replace("FROM pwh.patients", replace_str, 1).replace("FROM PWH.PATIENTS", replace_str, 1)
+
+            else:
+                # Ganti 'WHERE' pertama
+                replace_str = f"WHERE {alias}cabang = :branch AND "
+                query_filtered = query.replace("WHERE", replace_str, 1).replace("where", replace_str, 1)
+        
+        # --- END LOGIKA BARU ---
         
     # Eksekusi query yang sudah difilter
     with engine.begin() as conn:
