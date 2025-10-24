@@ -1,4 +1,4 @@
-# 01_pwh_input.py (Dengan tambahan kolom NIK, autoload Propinsi, autoload Cabang HMHI, dan layout rapi v3)
+# 01_pwh_input.py (Dengan filter cabang penuh di semua tab dan input v4)
 import os
 import io
 from datetime import date
@@ -74,7 +74,13 @@ ORDER BY p.id
         FROM pwh.contacts c JOIN pwh.patients p ON p.id = c.patient_id
         ORDER BY c.patient_id, c.id
     """)
-    df_summary = run_df_branch("""SELECT * FROM pwh.patient_summary ORDER BY id""")
+    
+    # --- PERUBAHAN DI SINI: Query summary di-JOIN ke patients agar bisa difilter ---
+    df_summary = run_df_branch("""
+        SELECT s.* FROM pwh.patient_summary s
+        JOIN pwh.patients p ON s.id = p.id
+        ORDER BY s.id
+    """)
     
     # --- FIX: Hapus Timezone dari Datetime Columns ---
     # Excel (via xlsxwriter) tidak mendukung datetime yang 'timezone-aware' (misal: UTC)
@@ -331,51 +337,9 @@ def _resolve_db_url() -> str:
     if env: return env
     st.error('DATABASE_URL tidak ditemukan. Isi `.streamlit/secrets.toml` dengan format:\n''DATABASE_URL = "postgresql+psycopg2://USER:PASSWORD@127.0.0.1:5432/pwhdb"')
     st.stop()
-# ----------------------------------------------------------------------------
-# LOGIN VALIDATION DAN FILTER CABANG (Sinkron dengan main.py)
-# ----------------------------------------------------------------------------
-if "auth_ok" not in st.session_state:
-    st.warning("Silakan login melalui halaman utama terlebih dahulu.")
-    st.stop()
-
-user_branch = st.session_state.get("user_branch", None)
-
-def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
-    """Menjalankan query dengan filter cabang otomatis sesuai user login (semua tabel PWH)."""
-    if user_branch and user_branch != "ALL":
-        for tbl in [
-            "pwh.patients",
-            "pwh.hemo_diagnoses",
-            "pwh.hemo_inhibitors",
-            "pwh.virus_tests",
-            "pwh.treatment_hospital",
-            "pwh.death",
-            "pwh.contacts",
-            "pwh.patient_summary"
-        ]:
-            # Kasus SELECT langsung
-            if f"FROM {tbl}" in query and "WHERE" not in query:
-                query = query.replace(f"FROM {tbl}", f"FROM {tbl} WHERE cabang = :branch")
-            elif f"FROM {tbl}" in query and "WHERE" in query:
-                query = query.replace("WHERE", "WHERE cabang = :branch AND ")
-            # Kasus JOIN (gabungan antar tabel)
-            elif f"JOIN {tbl}" in query and "WHERE" not in query:
-                query += " WHERE cabang = :branch"
-            elif f"JOIN {tbl}" in query and "WHERE" in query:
-                query = query.replace("WHERE", "WHERE cabang = :branch AND ")
-        params = params or {}
-        params["branch"] = user_branch
-
-    with engine.begin() as conn:
-        return pd.read_sql(text(query), conn, params=params or {})
-
 # ------------------------------------------------------------------------------
-# FILTER CABANG BERDASARKAN LOGIN
+# (DEFINISI run_df_branch PERTAMA DIHAPUS DARI SINI)
 # ------------------------------------------------------------------------------
-user_branch = st.session_state.get("user_branch", None)
-
-
-
 
 @st.cache_resource(show_spinner=False)
 def get_engine(dsn: str) -> Engine:
@@ -389,19 +353,59 @@ try:
 except Exception as e:
     st.error(f"Gagal konek ke Postgres: {e}")
     st.stop()
+    
 # ------------------------------------------------------------------------------
 # FILTER CABANG BERDASARKAN LOGIN
+# (INI ADALAH SATU-SATUNYA DEFINISI run_df_branch YANG BENAR)
 # ------------------------------------------------------------------------------
 user_branch = st.session_state.get("user_branch", None)
 
+def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
+    """Menjalankan query dengan filter cabang otomatis sesuai user login."""
+    
+    # Ambil user_branch dari session state SETIAP KALI FUNGSI DIPANGGIL
+    # Ini memastikan nilainya selalu update
+    current_user_branch = st.session_state.get("user_branch", None)
+    
+    # Salin query asli
+    query_filtered = query
+    query_upper = query.upper()
+    
+    if current_user_branch and current_user_branch != "ALL":
+        # Pola 1: FROM pwh.patients
+        if "FROM PWH.PATIENTS" in query_upper:
+            if "WHERE" not in query_upper:
+                # Ganti 'FROM pwh.patients' -> 'FROM pwh.patients WHERE cabang = :branch'
+                query_filtered = query.replace("FROM pwh.patients", "FROM pwh.patients WHERE cabang = :branch", 1).replace("FROM PWH.PATIENTS", "FROM pwh.patients WHERE cabang = :branch", 1)
+            else:
+                # Ganti 'WHERE' -> 'WHERE cabang = :branch AND '
+                query_filtered = query.replace("WHERE", "WHERE cabang = :branch AND ", 1).replace("where", "WHERE cabang = :branch AND ", 1)
+        
+        # Pola 2: JOIN pwh.patients p (asumsi alias 'p')
+        elif "JOIN PWH.PATIENTS P" in query_upper:
+            if "WHERE" not in query_upper:
+                # Tambah 'WHERE p.cabang = :branch' di akhir
+                query_filtered += " WHERE p.cabang = :branch"
+            else:
+                # Ganti 'WHERE' -> 'WHERE p.cabang = :branch AND '
+                query_filtered = query.replace("WHERE", "WHERE p.cabang = :branch AND ", 1).replace("where", "WHERE p.cabang = :branch AND ", 1)
 
+        # Siapkan params jika belum ada
+        params = params or {}
+        params["branch"] = current_user_branch
+        
+    # Eksekusi query yang sudah difilter
+    with engine.begin() as conn:
+        return pd.read_sql(text(query_filtered), conn, params=params or {})
+
+# ------------------------------------------------------------------------------
+# (DEFINISI run_df_branch KETIGA YANG SALAH DIHAPUS DARI SINI)
+# ------------------------------------------------------------------------------
 
 
 # ------------------------------------------------------------------------------
-# Helper eksekusi
+# Helper eksekusi (Hanya untuk INSERT/UPDATE)
 # ------------------------------------------------------------------------------
-
-
 def run_exec(sql: str, params: dict | None = None):
     with engine.begin() as conn:
         conn.execute(text(sql), params or {})
@@ -411,9 +415,12 @@ def run_exec(sql: str, params: dict | None = None):
 # ------------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def fetch_enum_vals(enum_typename: str) -> list[str]:
+    # Query ini tidak perlu filter cabang
     q = "SELECT e.enumlabel FROM pg_type t JOIN pg_enum e ON t.oid = e.enumtypid JOIN pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = 'pwh' AND t.typname = :typ ORDER BY e.enumsortorder;"
     try:
-        df = run_df_branch(q, {"typ": enum_typename})
+        # Gunakan read_sql langsung karena tidak perlu filter
+        with engine.begin() as conn:
+            df = pd.read_sql(text(q), conn, params={"typ": enum_typename})
         return df["enumlabel"].tolist()
     except Exception:
         return []
@@ -421,7 +428,9 @@ def fetch_enum_vals(enum_typename: str) -> list[str]:
 @st.cache_data(show_spinner=False)
 def fetch_occupations_list() -> list[str]:
     try:
-        df = run_df_branch("SELECT name FROM pwh.occupations ORDER BY name;")
+        # Tidak perlu filter cabang
+        with engine.begin() as conn:
+            df = pd.read_sql(text("SELECT name FROM pwh.occupations ORDER BY name;"), conn)
         if not df.empty: return [""] + df["name"].dropna().astype(str).tolist()
     except Exception: pass
     return ["","Tidak bekerja","Nelayan","Petani","PNS/TNI/Polri","Karyawan Swasta","Wiraswasta","Pensiunan"]
@@ -450,7 +459,9 @@ def fetch_all_wilayah_details() -> pd.DataFrame:
         ORDER BY
             full_display;
         """
-        df = run_df_branch(q)
+        # Tidak perlu filter cabang
+        with engine.begin() as conn:
+            df = pd.read_sql(text(q), conn)
         if not df.empty:
             return df
     except Exception as e:
@@ -472,7 +483,9 @@ def fetch_hmhi_branches() -> pd.DataFrame:
     try:
         # Menggunakan schema pwh.hmhi_cabang sesuai permintaan
         q = "SELECT DISTINCT cabang, kota_cakupan FROM pwh.hmhi_cabang WHERE cabang IS NOT NULL ORDER BY cabang;"
-        df = run_df_branch(q)
+        # Tidak perlu filter cabang
+        with engine.begin() as conn:
+            df = pd.read_sql(text(q), conn)
         if not df.empty:
             return df
     except Exception as e:
@@ -489,7 +502,9 @@ def fetch_hmhi_branches() -> pd.DataFrame:
 def fetch_hospitals() -> list[str]:
     try:
         q = "SELECT CONCAT_WS(' - ', nama_rs, kota, provinsi) as hospital_display FROM public.rumah_sakit ORDER BY hospital_display;"
-        df = run_df_branch(q)
+        # Tidak perlu filter cabang
+        with engine.begin() as conn:
+            df = pd.read_sql(text(q), conn)
         if not df.empty:
             return [""] + df["hospital_display"].tolist()
     except Exception as e:
@@ -501,6 +516,8 @@ def fetch_hospitals() -> list[str]:
 @st.cache_data(show_spinner="Memuat daftar pasien...")
 def get_all_patients_for_selection():
     """Mengambil daftar pasien dari DB untuk digunakan di selectbox."""
+    # --- PERUBAHAN DI SINI: Menggunakan run_df_branch ---
+    # Ini akan otomatis memfilter dropdown pasien sesuai cabang user
     return run_df_branch("SELECT id, full_name FROM pwh.patients ORDER BY full_name;")
 
 # ------------------------------------------------------------------------------
@@ -697,6 +714,11 @@ def import_bulk_excel(file) -> dict:
     df_pat = df_or_empty("pasien", pat_cols_internal, MAP_PAT)
     inserted_patients = []
     
+    # --- PERUBAHAN DI SINI: Dapatkan status admin/cabang ---
+    user_branch_bulk = st.session_state.get("user_branch", None)
+    is_admin_bulk = (user_branch_bulk == "ALL" or not user_branch_bulk)
+    df_hmhi_lookup = fetch_hmhi_branches() # Ambil untuk lookup kota cakupan
+    
     for _, r in df_pat[df_pat["full_name"].notna()].iterrows():
         payload = {
             "full_name": _safe_str(r.get("full_name")), "birth_place": _safe_str(r.get("birth_place")),
@@ -710,9 +732,22 @@ def import_bulk_excel(file) -> dict:
             "village": _safe_str(r.get("village")), "district": _safe_str(r.get("district")),
             "cabang": _safe_str(r.get("cabang")), "kota_cakupan": _safe_str(r.get("kota_cakupan")) # <-- TAMBAHAN BARU
         }
+        
+        # --- PERUBAHAN DI SINI: Override cabang jika bukan admin ---
+        if not is_admin_bulk and user_branch_bulk:
+            payload["cabang"] = user_branch_bulk
+            # Cari kota cakupan yang sesuai
+            match_cabang = df_hmhi_lookup[df_hmhi_lookup['cabang'] == user_branch_bulk]
+            if not match_cabang.empty:
+                payload["kota_cakupan"] = match_cabang.iloc[0]['kota_cakupan'] or None
+            else:
+                payload["kota_cakupan"] = None # Cabang user tidak ada di list
+        
         pid = insert_patient(payload)
         inserted_patients.append((pid, payload["full_name"]))
 
+    # --- PERUBAHAN DI SINI: Panggil run_df_branch ---
+    # Ini akan memetakan nama ke ID hanya untuk pasien di cabang user
     map_new = {name.lower(): pid for pid, name in inserted_patients}
     df_all_pat = run_df_branch("SELECT id, full_name FROM pwh.patients")
     map_db = {str(n).lower(): int(i) for i, n in zip(df_all_pat["id"], df_all_pat["full_name"])}
@@ -819,12 +854,24 @@ def set_editing_state(state_key, data_id, table_name):
     """Memuat data untuk diedit ke dalam session state."""
     if not data_id:
         return
-    query = f"SELECT * FROM {table_name} WHERE id = {int(data_id)};"
-    data = run_df_branch(query)
+    
+    # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
+    # Ini memastikan user tidak bisa mengedit data dari cabang lain
+    # dengan menebak ID (meskipun datanya tidak akan muncul di tabel)
+    query = f"SELECT * FROM {table_name} t"
+    
+    # Tambah join untuk filter by cabang jika tabelnya bukan patients
+    if table_name != 'pwh.patients':
+        query += " JOIN pwh.patients p ON t.patient_id = p.id"
+        
+    query += f" WHERE t.id = {int(data_id)};"
+    
+    data = run_df_branch(query) # run_df_branch akan auto-filter
+    
     if not data.empty:
         st.session_state[state_key] = data.to_dict('records')[0]
     else:
-        st.error(f"ID {data_id} tidak ditemukan di tabel {table_name}.")
+        st.error(f"ID {data_id} tidak ditemukan di tabel {table_name} (atau bukan bagian dari cabang Anda).")
         if state_key in st.session_state:
             del st.session_state[state_key]
 
@@ -851,6 +898,10 @@ with tab_pat:
     df_wilayah_all = fetch_all_wilayah_details()
     df_hmhi = fetch_hmhi_branches() # <-- PANGGIL FUNGSI BARU
     occupations_list = fetch_occupations_list()
+    
+    # --- PERUBAHAN DI SINI: Dapatkan status admin/cabang ---
+    user_branch_form = st.session_state.get("user_branch", None)
+    is_admin_form = (user_branch_form == "ALL" or not user_branch_form)
 
     with st.container(border=True):
         full_name = st.text_input("Nama Lengkap*", value=pat_data.get('full_name', ''))
@@ -945,10 +996,13 @@ with tab_pat:
         cabang_list = [""] + df_hmhi['cabang'].unique().tolist()
         kota_cakupan_val = ""
 
-        # Cek data yang ada (jika mode edit)
+        # --- PERUBAHAN DI SINI: Tentukan nilai default dan status disabled ---
         default_cabang = ""
         if pat_data:
             default_cabang = pat_data.get('cabang') or ""
+        elif not is_admin_form and user_branch_form:
+             # Jika BUKAN admin DAN BUKAN mode edit, paksakan branch user
+            default_cabang = user_branch_form
 
         cabang_idx = get_safe_index(cabang_list, default_cabang)
 
@@ -958,16 +1012,20 @@ with tab_pat:
             selected_cabang = st.selectbox(
                 "HMHI Cabang",
                 cabang_list,
-                index=cabang_idx
+                index=cabang_idx,
+                disabled=(not is_admin_form) # <-- Dinonaktifkan jika bukan admin
             )
 
         # Logika Autoload Kota Cakupan
-        if selected_cabang:
-            match_cabang = df_hmhi[df_hmhi['cabang'] == selected_cabang]
+        # Jika bukan admin, pastikan selected_cabang adalah branch user
+        active_cabang = user_branch_form if not is_admin_form and user_branch_form else selected_cabang
+        
+        if active_cabang:
+            match_cabang = df_hmhi[df_hmhi['cabang'] == active_cabang]
             if not match_cabang.empty:
                 # Ambil kota cakupan, pastikan tidak null
                 kota_cakupan_val = match_cabang.iloc[0]['kota_cakupan'] or ""
-        elif pat_data and not selected_cabang: # Jika tidak ada yg dipilih, tapi mode edit, isi data lama
+        elif pat_data and not active_cabang: # Jika tidak ada yg dipilih, tapi mode edit, isi data lama
              kota_cakupan_val = pat_data.get('kota_cakupan', '')
         
         with col_cakupan:
@@ -1005,16 +1063,31 @@ with tab_pat:
                 # ------------------------
                 "note": (note or "").strip() or None
             }
+            
+            # --- PERUBAHAN DI SINI: Override cabang jika bukan admin ---
+            if not is_admin_form and user_branch_form:
+                payload["cabang"] = user_branch_form
+                # Set kota cakupan sesuai branch
+                match_cabang = df_hmhi[df_hmhi['cabang'] == user_branch_form]
+                if not match_cabang.empty:
+                    payload["kota_cakupan"] = match_cabang.iloc[0]['kota_cakupan'] or None
+                else:
+                    payload["kota_cakupan"] = None
+            
+            
             if pat_data:
                 # Logika update
+                # --- PERUBAHAN DI SINI: Gunakan run_df_branch untuk cek duplikat ---
+                # Ini memastikan cek duplikat hanya di dalam cabang user (kecuali admin)
                 q_check_nik = "SELECT id FROM pwh.patients WHERE nik = :nik AND id != :current_id"
                 existing_nik = run_df_branch(q_check_nik, {"nik": payload["nik"], "current_id": pat_data['id']})
                 q_check_name = "SELECT id FROM pwh.patients WHERE lower(full_name) = lower(:name) AND id != :current_id"
                 existing_name = run_df_branch(q_check_name, {"name": payload["full_name"], "current_id": pat_data['id']})
+                
                 if not existing_nik.empty:
-                    st.error(f"NIK '{payload['nik']}' sudah digunakan oleh pasien lain (ID: {existing_nik.iloc[0]['id']}).")
+                    st.error(f"NIK '{payload['nik']}' sudah digunakan oleh pasien lain (ID: {existing_nik.iloc[0]['id']}) di cabang Anda.")
                 elif not existing_name.empty:
-                    st.error(f"Nama '{payload['full_name']}' sudah digunakan oleh pasien lain (ID: {existing_name.iloc[0]['id']}). Gunakan nama yang unik.")
+                    st.error(f"Nama '{payload['full_name']}' sudah digunakan oleh pasien lain (ID: {existing_name.iloc[0]['id']}) di cabang Anda. Gunakan nama yang unik.")
                 else:
                     update_patient(pat_data['id'], payload)
                     st.success(f"Pasien dengan ID {pat_data['id']} berhasil diperbarui.")
@@ -1026,14 +1099,16 @@ with tab_pat:
                     st.rerun()
             else:
                 # Logika insert
+                # --- PERUBAHAN DI SINI: Gunakan run_df_branch untuk cek duplikat ---
                 q_check_nik = "SELECT id FROM pwh.patients WHERE nik = :nik"
                 existing_nik = run_df_branch(q_check_nik, {"nik": payload["nik"]})
                 q_check_name = "SELECT id FROM pwh.patients WHERE lower(full_name) = lower(:name)"
                 existing_name = run_df_branch(q_check_name, {"name": payload["full_name"]})
+                
                 if not existing_nik.empty:
-                    st.error(f"NIK '{payload['nik']}' sudah ada di database dengan ID: {existing_nik.iloc[0]['id']}. Gunakan NIK lain.")
+                    st.error(f"NIK '{payload['nik']}' sudah ada di database (ID: {existing_nik.iloc[0]['id']}) di cabang Anda. Gunakan NIK lain.")
                 elif not existing_name.empty:
-                    st.error(f"Nama '{payload['full_name']}' sudah ada di database dengan ID: {existing_name.iloc[0]['id']}. Gunakan nama lain.")
+                    st.error(f"Nama '{payload['full_name']}' sudah ada di database (ID: {existing_name.iloc[0]['id']}) di cabang Anda. Gunakan nama lain.")
                 else:
                     pid = insert_patient(payload)
                     st.success(f"Pasien baru berhasil disimpan dengan ID: {pid}")
@@ -1050,9 +1125,10 @@ with tab_pat:
     if st.button("Cari Pasien", key="search_pat_button"):
         clear_session_state('patient_to_edit') 
         if search_name_pat:
+            # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
             results_df = run_df_branch("SELECT id, full_name, birth_date FROM pwh.patients WHERE full_name ILIKE :name", {"name": f"%{search_name_pat}%"})
             if results_df.empty:
-                st.warning("Pasien tidak ditemukan.")
+                st.warning("Pasien tidak ditemukan (di cabang Anda).")
                 clear_session_state('patient_matches')
             elif len(results_df) == 1:
                 set_editing_state('patient_to_edit', results_df.iloc[0]['id'], 'pwh.patients')
@@ -1076,6 +1152,7 @@ with tab_pat:
             clear_session_state('patient_matches')
             st.rerun()
 
+    # --- PERUBAHAN DI SINI: run_df_branch sudah otomatis memfilter ---
     dfp = run_df_branch("""
 SELECT
     p.id,
@@ -1111,31 +1188,22 @@ LIMIT 200;
         dfp_display['birth_date'] = dfp_display['birth_date'].apply(lambda x: '*****' if pd.notna(x) else x)
         dfp_display['nik'] = dfp_display['nik'].apply(lambda x: '*****' if pd.notna(x) and str(x).strip() else x)
         dfp_display['phone'] = dfp_display['phone'].apply(lambda x: '*****' if pd.notna(x) and str(x).strip() else x)
-        # Sembunyikan data alamat lengkap di tampilan tabel utama
-        # dfp_display['address'] = dfp_display['address'].apply(lambda x: '*****' if pd.notna(x) and str(x).strip() else x)
-        # dfp_display['village'] = dfp_display['village'].apply(lambda x: '*****' if pd.notna(x) and str(x).strip() else x)
-        # dfp_display['district'] = dfp_display['district'].apply(lambda x: '*****' if pd.notna(x) and str(x).strip() else x)
-        
-        # --- PERUBAHAN DI SINI ---
-        # Data cabang dan kota cakupan TIDAK disembunyikan lagi
-        # dfp_display['cabang'] = dfp_display['cabang'].apply(lambda x: '*****' if pd.notna(x) and str(x).strip() else x)
-        # dfp_display['kota_cakupan'] = dfp_display['kota_cakupan'].apply(lambda x: '*****' if pd.notna(x) and str(x).strip() else x)
-        # --- END PERUBAHAN ---
         
         dfp_display = dfp_display.drop(columns=['id'], errors='ignore')
         dfp_display.index = range(1, len(dfp_display) + 1)
         dfp_display.index.name = "No."
         
-        st.write(f"Total Data Pasien: **{len(dfp_display)}**")
+        st.write(f"Total Data Pasien (di cabang Anda): **{len(dfp_display)}**")
         st.dataframe(_alias_df(dfp_display, ALIAS_PATIENTS), use_container_width=True)
     else:
-        st.info("Belum ada data pasien.")
+        st.info("Belum ada data pasien (di cabang Anda).")
 
 # ==============================================================================
 # --- Blok Kode Umum untuk Semua Tab Lainnya ---
 # ==============================================================================
 
 # Ambil data pasien sekali saja untuk semua tab
+# --- PERUBAHAN DI SINI: get_all_patients_for_selection() sudah difilter ---
 df_all_patients = get_all_patients_for_selection()
 patient_id_map = df_all_patients.set_index('id')['full_name'].to_dict()
 
@@ -1167,7 +1235,7 @@ with tab_diag:
     
     pid_diag = st.selectbox(
         "Pilih Pasien (untuk data baru)",
-        options=patient_id_options,
+        options=patient_id_options, # Dropdown ini sudah difilter
         index=patient_id_options.index(default_patient_id) if default_patient_id in patient_id_options else 0,
         format_func=format_patient_name,
         key="diag_patient_selector",
@@ -1216,10 +1284,11 @@ with tab_diag:
                 JOIN pwh.patients p ON p.id = d.patient_id
                 WHERE p.full_name ILIKE :name ORDER BY d.id DESC
             """
+            # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
             results_df = run_df_branch(q, {"name": f"%{search_name_diag}%"})
 
             if results_df.empty:
-                st.warning("Riwayat diagnosis tidak ditemukan untuk pasien dengan nama tersebut.")
+                st.warning("Riwayat diagnosis tidak ditemukan untuk pasien dengan nama tersebut (di cabang Anda).")
             elif len(results_df) == 1:
                 set_editing_state('diag_to_edit', results_df.iloc[0]['id'], 'pwh.hemo_diagnoses')
                 st.rerun()
@@ -1250,6 +1319,7 @@ with tab_diag:
         params['name'] = f"%{st.session_state.diag_selected_patient_name}%"
     query_diag += " ORDER BY d.id DESC LIMIT 300;"
     
+    # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
     df_diag = run_df_branch(query_diag, params)
 
     if not df_diag.empty:
@@ -1277,7 +1347,7 @@ with tab_inh:
     
     pid_inh = st.selectbox(
         "Pilih Pasien (untuk data baru)",
-        options=patient_id_options,
+        options=patient_id_options, # Dropdown ini sudah difilter
         index=patient_id_options.index(default_patient_id_inh) if default_patient_id_inh in patient_id_options else 0,
         format_func=format_patient_name,
         key="inh_patient_selector",
@@ -1325,10 +1395,11 @@ with tab_inh:
                 JOIN pwh.patients p ON p.id = i.patient_id
                 WHERE p.full_name ILIKE :name ORDER BY i.id DESC
             """
+            # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
             results_df = run_df_branch(q, {"name": f"%{search_name_inh}%"})
 
             if results_df.empty:
-                st.warning("Riwayat inhibitor tidak ditemukan.")
+                st.warning("Riwayat inhibitor tidak ditemukan (di cabang Anda).")
             elif len(results_df) == 1:
                 set_editing_state('inh_to_edit', results_df.iloc[0]['id'], 'pwh.hemo_inhibitors')
                 st.rerun()
@@ -1358,6 +1429,8 @@ with tab_inh:
         query_inh += " WHERE p.full_name ILIKE :name"
         params_inh['name'] = f"%{st.session_state.inh_selected_patient_name}%"
     query_inh += " ORDER BY i.id DESC LIMIT 500;"
+    
+    # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
     df_inh = run_df_branch(query_inh, params_inh)
 
     if not df_inh.empty:
@@ -1385,7 +1458,7 @@ with tab_virus:
     
     pid_virus = st.selectbox(
         "Pilih Pasien (untuk data baru)",
-        options=patient_id_options,
+        options=patient_id_options, # Dropdown ini sudah difilter
         index=patient_id_options.index(default_patient_id_virus) if default_patient_id_virus in patient_id_options else 0,
         format_func=format_patient_name,
         key="virus_patient_selector",
@@ -1434,10 +1507,11 @@ with tab_virus:
                 JOIN pwh.patients p ON p.id = v.patient_id
                 WHERE p.full_name ILIKE :name ORDER BY v.id DESC
             """
+            # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
             results_df = run_df_branch(q, {"name": f"%{search_name_virus}%"})
 
             if results_df.empty:
-                st.warning("Riwayat tes virus tidak ditemukan.")
+                st.warning("Riwayat tes virus tidak ditemukan (di cabang Anda).")
             elif len(results_df) == 1:
                 set_editing_state('virus_to_edit', results_df.iloc[0]['id'], 'pwh.virus_tests')
                 st.rerun()
@@ -1468,6 +1542,7 @@ with tab_virus:
         params_virus['name'] = f"%{st.session_state.virus_selected_patient_name}%"
     query_virus += " ORDER BY v.id DESC LIMIT 500;"
     
+    # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
     df_virus = run_df_branch(query_virus, params_virus)
 
     if not df_virus.empty:
@@ -1499,7 +1574,7 @@ with tab_hospital:
     
     pid_hosp = st.selectbox(
         "Pilih Pasien (untuk data baru)",
-        options=patient_id_options,
+        options=patient_id_options, # Dropdown ini sudah difilter
         index=patient_id_options.index(default_patient_id_hosp) if default_patient_id_hosp in patient_id_options else 0,
         format_func=format_patient_name,
         key="hosp_patient_selector",
@@ -1578,10 +1653,11 @@ with tab_hospital:
                 JOIN pwh.patients p ON p.id = th.patient_id
                 WHERE p.full_name ILIKE :name ORDER BY th.id DESC
             """
+            # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
             results_df = run_df_branch(q, {"name": f"%{search_name_hosp}%"})
 
             if results_df.empty:
-                st.warning("Riwayat penanganan RS tidak ditemukan.")
+                st.warning("Riwayat penanganan RS tidak ditemukan (di cabang Anda).")
             elif len(results_df) == 1:
                 set_editing_state('hosp_to_edit', results_df.iloc[0]['id'], 'pwh.treatment_hospital')
                 st.rerun()
@@ -1612,6 +1688,7 @@ with tab_hospital:
         params_hosp['name'] = f"%{st.session_state.hosp_selected_patient_name}%"
     query_hosp += " ORDER BY th.id DESC LIMIT 300;"
 
+    # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
     df_th = run_df_branch(query_hosp, params_hosp)
         
     if not df_th.empty:
@@ -1638,7 +1715,7 @@ with tab_death:
 
     pid_death = st.selectbox(
         "Pilih Pasien (untuk data baru)",
-        options=patient_id_options,
+        options=patient_id_options, # Dropdown ini sudah difilter
         index=patient_id_options.index(default_patient_id_death) if default_patient_id_death in patient_id_options else 0,
         format_func=format_patient_name,
         key="death_patient_selector",
@@ -1687,9 +1764,10 @@ with tab_death:
                 JOIN pwh.patients p ON p.id = d.patient_id
                 WHERE p.full_name ILIKE :name
             """
+            # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
             results_df = run_df_branch(q, {"name": f"%{search_name_death}%"})
             if results_df.empty:
-                st.warning("Data kematian tidak ditemukan.")
+                st.warning("Data kematian tidak ditemukan (di cabang Anda).")
             else:
                 set_editing_state('death_to_edit', results_df.iloc[0]['id'], 'pwh.death')
                 st.rerun()
@@ -1704,6 +1782,7 @@ with tab_death:
         params_death['name'] = f"%{st.session_state.death_selected_patient_name}%"
     query_death += " ORDER BY d.id DESC;"
     
+    # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
     df_death = run_df_branch(query_death, params_death)
 
     if not df_death.empty:
@@ -1732,7 +1811,7 @@ with tab_contacts:
     
     pid_cont = st.selectbox(
         "Pilih Pasien (untuk data baru)",
-        options=patient_id_options,
+        options=patient_id_options, # Dropdown ini sudah difilter
         index=patient_id_options.index(default_patient_id_cont) if default_patient_id_cont in patient_id_options else 0,
         format_func=format_patient_name,
         key="cont_patient_selector",
@@ -1784,10 +1863,11 @@ with tab_contacts:
                 JOIN pwh.patients p ON p.id = c.patient_id
                 WHERE p.full_name ILIKE :name ORDER BY c.id DESC
             """
+            # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
             results_df = run_df_branch(q, {"name": f"%{search_name_cont}%"})
 
             if results_df.empty:
-                st.warning("Kontak tidak ditemukan.")
+                st.warning("Kontak tidak ditemukan (di cabang Anda).")
             elif len(results_df) == 1:
                 set_editing_state('contact_to_edit', results_df.iloc[0]['id'], 'pwh.contacts')
                 st.rerun()
@@ -1817,6 +1897,8 @@ with tab_contacts:
         query_cont += " WHERE p.full_name ILIKE :name"
         params_cont['name'] = f"%{st.session_state.cont_selected_patient_name}%"
     query_cont += " ORDER BY c.id DESC LIMIT 500;"
+    
+    # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
     df_contacts = run_df_branch(query_cont, params_cont)
 
     if not df_contacts.empty:
@@ -1831,9 +1913,17 @@ with tab_contacts:
 # Ringkasan
 with tab_view:
     st.subheader("📄 Ringkasan Pasien") # Diubah ke 'Ringkasan Pasien'
-    df = run_df_branch("SELECT * FROM pwh.patient_summary ORDER BY id DESC LIMIT 300;")
+    
+    # --- PERUBAHAN DI SINI: Query di-JOIN ke patients agar bisa difilter ---
+    df = run_df_branch("""
+        SELECT s.* FROM pwh.patient_summary s
+        JOIN pwh.patients p ON s.id = p.id
+        ORDER BY s.id DESC 
+        LIMIT 300;
+    """)
+    
     if df.empty:
-        st.info("Belum ada data.")
+        st.info("Belum ada data (di cabang Anda).")
     else:
         df_summary_display = df.copy()
         # Sembunyikan data sensitif potensial
@@ -1845,17 +1935,17 @@ with tab_view:
         df_summary_display = df_summary_display.drop(columns=['id'], errors='ignore')
         df_summary_display.index = range(1, len(df_summary_display) + 1)
         df_summary_display.index.name = "No."
-        st.write(f"Total Data Pasien: **{len(df_summary_display)}**")
+        st.write(f"Total Data Pasien (di cabang Anda): **{len(df_summary_display)}**")
         st.dataframe(_alias_df(df_summary_display, ALIAS_SUMMARY), use_container_width=True)
         st.caption("View ini mengambil hasil terbaru per pasien (diagnosis A/B/vWD, inhibitor FVIII/FIX, dan tes HBsAg/Anti-HCV/HIV).")
 
 # Export
 with tab_export:
     st.subheader("⬇️ Export Excel (semua tab)")
-    st.write("Klik tombol di bawah untuk membuat file Excel dengan semua data (nama sheet dan kolom dalam Bahasa Indonesia).")
+    st.write("Klik tombol di bawah untuk membuat file Excel dengan semua data (nama sheet dan kolom dalam Bahasa Indonesia) **yang ada di cabang Anda**.")
     if st.button("Generate file Excel"):
         try:
-            excel_bytes = build_excel_bytes()
+            excel_bytes = build_excel_bytes() # Fungsi ini sudah menggunakan run_df_branch
             st.download_button(label="💾 Download data_pwh.xlsx", data=excel_bytes, file_name="data_pwh.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             st.success("File siap diunduh.")
         except Exception as e: st.error(f"Gagal membuat file Excel: {e}")
@@ -1872,9 +1962,10 @@ with tab_export:
 
     with c2:
         up = st.file_uploader("Unggah file Template Bulk (.xlsx) untuk di-import", type=["xlsx"])
+        st.caption("Perhatian: Jika Anda bukan admin, data pasien baru akan secara otomatis dimasukkan ke cabang Anda, mengabaikan isi kolom 'HMHI Cabang' di Excel.")
         if up and st.button("🚀 Import Bulk ke Database", type="primary"):
             try:
-                result = import_bulk_excel(up)
+                result = import_bulk_excel(up) # Fungsi ini sudah difilter
                 msg = "Import selesai — " + ", ".join(f"{k}: {v}" for k, v in result.items())
                 st.success(msg)
                 # Clear cache setelah import bulk berhasil
