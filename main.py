@@ -117,8 +117,8 @@ MENU_ITEMS = {
     "🚻 Rekapitulasi per Jenis Kelamin": "03_rekap_gender.py",
     "🏥 RS Perawatan Hemofilia": "04_rs_hemofilia.py",
     "📚 Rekap Pendidikan & Pekerjaan": "05_rekap_pend_pekerjaan.py",
-    "🗺️ Distribusi Pasien per Kota (Berdasarkan RS Penangan)": "06_distribusi_pasien.py",
-    "🗺️ Rekapitulasi per Provinsi (Berdasarkan Domisi)": "07_rekap_propinsi.py",
+    "🗺️ Distribusi Pasien per Cabang": "06_distribusi_pasien.py",
+    "🗺️ Rekapitulasi per Provinsi (Berdasarkan Domisili)": "07_rekap_propinsi.py",
 }
 
 ICONS = [
