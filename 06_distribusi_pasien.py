@@ -10,11 +10,11 @@ from sqlalchemy import create_engine, text
 # KONFIGURASI HALAMAN
 # =========================
 st.set_page_config(
-    page_title="Peta Jumlah Pasien per Propinsi",
+    page_title="Peta Jumlah Pasien per Cabang HMHI",
     page_icon="🗺️",
     layout="wide"
 )
-st.title("🗺️ Peta Jumlah Pasien per Propinsi (Hemofilia)")
+st.title("🗺️ Peta Jumlah Pasien Hemofilia per Cabang HMHI")
 
 # =========================
 # UTIL KONEKSI (dual-mode)
