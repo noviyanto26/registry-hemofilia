@@ -153,7 +153,12 @@ if df.empty:
     st.warning("Data rekap tidak ditemukan. Pastikan view pwh.v_hospital_summary tersedia.")
     st.stop()
 
-grouped = df.groupby(["Kota", "Propinsi"], dropna=False)["Jumlah Pasien"].sum().reset_index()
+# Agregasi data: Jumlahkan pasien DAN kumpulkan nama RS per kota
+grouped = df.groupby(["Kota", "Propinsi"], dropna=False).agg(
+    **{"Jumlah Pasien": ("Jumlah Pasien", "sum"),
+       "Rumah Sakit Penangan": ("Nama Rumah Sakit", lambda s: ", ".join(s.unique()))}
+).reset_index()
+
 if min_count > 0:
     grouped = grouped[grouped["Jumlah Pasien"] >= min_count].copy()
 
@@ -172,7 +177,7 @@ if not grouped_valid.empty:
     grouped_valid["label"] = grouped_valid.apply(lambda r: f"{r['Kota']} : {int(r['Jumlah Pasien'])}", axis=1)
 
 st.subheader(f"📋 Rekap Per Kota (koordinat valid: {len(grouped_valid)}/{len(grouped)})")
-st.dataframe(grouped_valid[["Kota", "Propinsi", "Jumlah Pasien", "lat", "lon"]].sort_values("Jumlah Pasien", ascending=False), use_container_width=True, hide_index=True)
+st.dataframe(grouped_valid[["Rumah Sakit Penangan", "Kota", "Propinsi", "Jumlah Pasien", "lat", "lon"]].sort_values("Jumlah Pasien", ascending=False), use_container_width=True, hide_index=True)
 
 def_view = pdk.ViewState(latitude=-2.5, longitude=118.0, zoom=4.2, pitch=0)
 heatmap_layer = pdk.Layer("HeatmapLayer", data=grouped_valid, get_position='[lon, lat]', get_weight="Jumlah Pasien", radius_pixels=int(heatmap_radius))
@@ -212,6 +217,6 @@ else:
     st.pydeck_chart(pdk.Deck(map_style=get_map_style(), initial_view_state=def_view, layers=[heatmap_layer, scatter_layer, text_layer], tooltip=tooltip))
 
 if not grouped_valid.empty:
-    st.download_button("📥 Download Data Per Kota (CSV)", data=grouped_valid[["Kota", "Propinsi", "Jumlah Pasien", "lat", "lon"]].to_csv(index=False).encode("utf-8"), file_name="rekap_pasien_per_kota.csv", mime="text/csv")
+    st.download_button("📥 Download Data Per Kota (CSV)", data=grouped_valid[["Rumah Sakit Penangan", "Kota", "Propinsi", "Jumlah Pasien", "lat", "lon"]].to_csv(index=False).encode("utf-8"), file_name="rekap_pasien_per_kota.csv", mime="text/csv")
 
 st.caption("Sumber: view **pwh.v_hospital_summary**. Koordinat diambil dari tabel lokal `public.kota_geo` (jika ada), fallback kamus statis, dan *opsional* geocoding online Nominatim/OSM. Jika tidak ada MAPBOX_TOKEN, otomatis memakai OSM default. Label jumlah pasien ditampilkan di titik kota.")
