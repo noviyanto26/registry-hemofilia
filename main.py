@@ -119,6 +119,7 @@ MENU_ITEMS = {
     "📚 Rekap Pendidikan & Pekerjaan": "05_rekap_pend_pekerjaan.py",
     "🗺️ Distribusi Pasien per Cabang": "06_distribusi_pasien.py",
     "🗺️ Rekapitulasi per Provinsi (Berdasarkan Domisili)": "07_rekap_propinsi.py",
+    "🗺️ Distribusi Pasien per RS Penangan": "08_distribusi_rs.py",
 }
 
 ICONS = [
