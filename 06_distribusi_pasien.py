@@ -14,7 +14,7 @@ st.set_page_config(
     page_icon="🗺️",
     layout="wide"
 )
-st.title("🗺️ Peta Jumlah Pasien Hemofilia per Cabang HMHI")
+st.title("🗺️ Peta Jumlah Pasien per Cabang HMHI")
 
 # =========================
 # UTIL KONEKSI (dual-mode)
@@ -175,7 +175,7 @@ if not grouped_valid.empty:
 # =========================
 # TAMPILAN STREAMLIT
 # =========================
-st.subheader(f"📋 Rekap Per Propinsi (valid: {len(grouped_valid)}/{len(grouped)})")
+st.subheader(f"📋 Rekap Per Cabang HMHI (valid: {len(grouped_valid)}/{len(grouped)})")
 
 # Tampilkan tabel data
 display_cols = ["Propinsi", "Jumlah Pasien"]
