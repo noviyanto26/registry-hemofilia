@@ -51,7 +51,7 @@ def load_rekap() -> pd.DataFrame:
     # Asumsi: nilai di kolom 'cabang' adalah nama Propinsi.
     sql = """
         SELECT
-            cabang AS propinsi,        -- Cabang kita anggap sebagai Propinsi
+            cabang AS propinsi,      -- Cabang kita anggap sebagai Propinsi
             COUNT(*) AS jumlah_pasien
         FROM
             pwh.patients
@@ -67,14 +67,16 @@ def load_rekap() -> pd.DataFrame:
     df = run_query(sql)
     
     # Rename agar sesuai dengan standar internal skrip
+    # MODIFIKASI: Mengganti "Propinsi" menjadi "Cabang HMHI"
     df = df.rename(columns={
-        "propinsi": "Propinsi",
+        "propinsi": "Cabang HMHI",
         "jumlah_pasien": "Jumlah Pasien"
     })
     
     # Bersihkan whitespace
-    if "Propinsi" in df.columns:
-        df["Propinsi"] = df["Propinsi"].astype(str).str.strip()
+    # MODIFIKASI: Mengganti "Propinsi" menjadi "Cabang HMHI"
+    if "Cabang HMHI" in df.columns:
+        df["Cabang HMHI"] = df["Cabang HMHI"].astype(str).str.strip()
             
     return df
 
@@ -148,7 +150,8 @@ if geo_ref.empty:
      st.stop()
 
 # Lakukan lookup hanya berdasarkan propinsi
-grouped["coord"] = grouped["Propinsi"].apply(lambda p: lookup_coord_propinsi(p, geo_ref))
+# MODIFIKASI: Mengganti "Propinsi" menjadi "Cabang HMHI"
+grouped["coord"] = grouped["Cabang HMHI"].apply(lambda p: lookup_coord_propinsi(p, geo_ref))
 
 valid_mask = grouped["coord"].apply(_is_valid_coord)
 grouped_valid = grouped[valid_mask].copy()
@@ -163,14 +166,15 @@ if not grouped_valid.empty:
     else:
         grouped_valid = grouped_valid.iloc[0:0] # Kosongkan jika gagal parsing
 else:
-     # Siapkan kolom kosong jika tidak ada data valid
+    # Siapkan kolom kosong jika tidak ada data valid
     grouped_valid["lat"] = pd.Series(dtype=float)
     grouped_valid["lon"] = pd.Series(dtype=float)
 
 # Finalisasi data untuk peta
 if not grouped_valid.empty:
     grouped_valid["radius"] = (grouped_valid["Jumlah Pasien"] ** 0.5) * 2500 # Radius sedikit diperbesar untuk propinsi
-    grouped_valid["label"] = grouped_valid.apply(lambda r: f"{r['Propinsi']} : {int(r['Jumlah Pasien'])}", axis=1)
+    # MODIFIKASI: Mengganti "Propinsi" menjadi "Cabang HMHI"
+    grouped_valid["label"] = grouped_valid.apply(lambda r: f"{r['Cabang HMHI']} : {int(r['Jumlah Pasien'])}", axis=1)
 
 # =========================
 # TAMPILAN STREAMLIT
@@ -178,7 +182,8 @@ if not grouped_valid.empty:
 st.subheader(f"📋 Rekap Per Cabang HMHI (valid: {len(grouped_valid)}/{len(grouped)})")
 
 # Tampilkan tabel data
-display_cols = ["Propinsi", "Jumlah Pasien"]
+# MODIFIKASI: Mengganti "Propinsi" menjadi "Cabang HMHI"
+display_cols = ["Cabang HMHI", "Jumlah Pasien"]
 if not grouped_valid.empty:
     st.dataframe(grouped_valid[display_cols + ["lat", "lon"]].sort_values("Jumlah Pasien", ascending=False), use_container_width=True, hide_index=True)
 else:
@@ -217,8 +222,9 @@ text_layer = pdk.Layer(
     get_alignment_baseline="'bottom'"
 )
 
+# MODIFIKASI: Mengganti "Propinsi" menjadi "Cabang HMHI"
 tooltip = {
-    "html": "<b>Propinsi: {Propinsi}</b><br/>Jumlah Pasien: {Jumlah Pasien}",
+    "html": "<b>Cabang HMHI: {Cabang HMHI}</b><br/>Jumlah Pasien: {Jumlah Pasien}",
     "style": {"backgroundColor": "white", "color": "black", "zIndex": "999"}
 }
 
@@ -247,4 +253,5 @@ if not grouped_valid.empty:
         mime="text/csv"
     )
 
-st.caption("Sumber: Agregasi dari tabel **pwh.patients** (kolom `cabang`). Koordinat diambil dari tabel referensi **`public.kota_geo_new`** berdasarkan kesamaan nama Propinsi.")
+# MODIFIKASI: Mengganti "Propinsi" menjadi "Cabang HMHI"
+st.caption("Sumber: Agregasi dari tabel **pwh.patients** (kolom `cabang`). Koordinat diambil dari tabel referensi **`public.kota_geo_new`** berdasarkan kesamaan nama Cabang HMHI (Propinsi).")
