@@ -548,7 +548,7 @@ def fetch_hospitals() -> list[str]:
 # --- FUNGSI BARU UNTUK MENGAMBIL DATA PASIEN ---
 @st.cache_data(show_spinner="Memuat daftar pasien...")
 def get_all_patients_for_selection(user_branch: str | None): # <-- TAMBAHKAN ARGUMEN INI
-"""Mengambil daftar pasien dari DB untuk digunakan di selectbox."""
+    """Mengambil daftar pasien dari DB untuk digunakan di selectbox."""
     # --- PERUBAHAN DI SINI: Menggunakan run_df_branch ---
     # Ini akan otomatis memfilter dropdown pasien sesuai cabang user
     return run_df_branch("SELECT id, full_name FROM pwh.patients ORDER BY full_name;")
