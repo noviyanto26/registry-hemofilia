@@ -547,8 +547,8 @@ def fetch_hospitals() -> list[str]:
 
 # --- FUNGSI BARU UNTUK MENGAMBIL DATA PASIEN ---
 @st.cache_data(show_spinner="Memuat daftar pasien...")
-def get_all_patients_for_selection():
-    """Mengambil daftar pasien dari DB untuk digunakan di selectbox."""
+def get_all_patients_for_selection(user_branch: str | None): # <-- TAMBAHKAN ARGUMEN INI
+    """Mengambil daftar pasien dari DB untuk digunakan di selectbox."""
     # --- PERUBAHAN DI SINI: Menggunakan run_df_branch ---
     # Ini akan otomatis memfilter dropdown pasien sesuai cabang user
     return run_df_branch("SELECT id, full_name FROM pwh.patients ORDER BY full_name;")
@@ -1235,9 +1235,13 @@ LIMIT 200;
 # --- Blok Kode Umum untuk Semua Tab Lainnya ---
 # ==============================================================================
 
+# --- PERBAIKAN: Ambil status user SAAT INI untuk cache ---
+current_user_branch_for_cache = st.session_state.get("user_branch", None)
+
 # Ambil data pasien sekali saja untuk semua tab
 # --- PERUBAHAN DI SINI: get_all_patients_for_selection() sudah difilter ---
-df_all_patients = get_all_patients_for_selection()
+# --- PERBAIKAN: Masukkan user_branch agar cache-nya dinamis ---
+df_all_patients = get_all_patients_for_selection(current_user_branch_for_cache)
 patient_id_map = df_all_patients.set_index('id')['full_name'].to_dict()
 
 def format_patient_name(patient_id):
