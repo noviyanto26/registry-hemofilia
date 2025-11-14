@@ -1770,10 +1770,48 @@ with tab_hospital:
         st.write(f"Total Data Penanganan: **{len(df_th_aliased)}**")
         st.caption("Untuk menghapus data, **centang kotak** di sebelah kiri baris yang ingin dihapus, lalu klik ikon ➖ (hapus) yang muncul di **bagian bawah tabel**.")
 
-        # 2. Konfigurasi kolom: Sembunyikan ID, dan nonaktifkan pengeditan
-        column_config = {
-            "patient_id": None, # Sembunyikan 'patient_id'
-        }
+        # 2. Konfigurasi kolom: Sembunyikan patient_id dan NONAKTIFKAN EDITING
+        column_config = {
+            "patient_id": None, # Sembunyikan 'patient_id'
+        }
+        
+        # --- TAMBAHAN BARU: Nonaktifkan editing di semua kolom ---
+        # Ini untuk memperjelas ke Streamlit bahwa kita hanya ingin fungsi hapus,
+        # bukan edit, yang sepertinya akan memunculkan tombol '-'
+        
+        # Ambil semua kolom *setelah* 'id' jadi index
+        visible_cols = [col for col in df_th_aliased.columns if col != 'patient_id']
+        
+        for col_name in visible_cols:
+            # Tentukan tipe kolom untuk config
+            col_dtype = df_th_aliased[col_name].dtype
+            
+            # Cek untuk tanggal (termasuk object date dari DB)
+            is_date_like = False
+            if not df_th_aliased[col_name].dropna().empty:
+                first_valid = df_th_aliased[col_name].dropna().iloc[0]
+                if isinstance(first_valid, date):
+                    is_date_like = True
+
+            if pd.api.types.is_datetime64_any_dtype(col_dtype) or is_date_like:
+                 # Gunakan format YYYY-MM-DD agar konsisten
+                 column_config[col_name] = st.column_config.DateColumn(
+                     label=col_name, # Tetapkan label agar header tetap benar
+                     disabled=True, 
+                     format="YYYY-MM-DD"
+                 )
+            elif pd.api.types.is_numeric_dtype(col_dtype):
+                 column_config[col_name] = st.column_config.NumberColumn(
+                     label=col_name,
+                     disabled=True
+                 )
+            else:
+                 # Default ke TextColumn
+                 column_config[col_name] = st.column_config.TextColumn(
+                     label=col_name,
+                     disabled=True
+                 )
+        # --- AKHIR TAMBAHAN BARU ---
        
         # 3. Buat st.data_editor
         edited_df_th = st.data_editor(
