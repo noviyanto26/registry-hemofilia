@@ -1774,7 +1774,7 @@ with tab_hospital:
         column_config = {
             "patient_id": None, # Sembunyikan 'patient_id'
         }
-        
+        
         # --- TAMBAHAN BARU: Nonaktifkan editing di semua kolom ---
         # Ini untuk memperjelas ke Streamlit bahwa kita hanya ingin fungsi hapus,
         # bukan edit, yang sepertinya akan memunculkan tombol '-'
@@ -1782,9 +1782,9 @@ with tab_hospital:
         # Ambil semua kolom *setelah* 'id' jadi index
         visible_cols = [col for col in df_th_aliased.columns if col != 'patient_id']
         
-        for col_name in visible_cols:
+        for col_name in visible_cols:
             # Tentukan tipe kolom untuk config
-            col_dtype = df_th_aliased[col_name].dtype
+            col_dtype = df_th_aliased[col_name].dtype
             
             # Cek untuk tanggal (termasuk object date dari DB)
             is_date_like = False
