@@ -1757,7 +1757,7 @@ with tab_hospital:
     query_hosp += " ORDER BY th.id DESC LIMIT 300;"
 
    # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
-    df_th = run_df_branch(query_hosp, params_hosp)
+    df_th = run_df_branch(query_hosp, params_hosp)
         
     if not df_th.empty:
         # --- START PERUBAHAN: Ganti st.dataframe ke st.data_editor ---
