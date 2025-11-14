@@ -1647,8 +1647,8 @@ with tab_hospital:
         format_func=format_patient_name,
         key="hosp_patient_selector",
         disabled=bool(hosp_data)
-    )
-    
+    )
+
     with st.form("hospital::form", clear_on_submit=False):
         hospital_list = fetch_hospitals()
         name_h, city_h, prov_h = hosp_data.get('name_hospital'), hosp_data.get('city_hospital'), hosp_data.get('province_hospital')
