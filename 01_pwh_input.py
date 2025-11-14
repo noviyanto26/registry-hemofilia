@@ -1628,10 +1628,10 @@ with tab_virus:
 
 # Rumah Sakit Penangan
 with tab_hospital:
-    st.subheader("🏥 Tambah Data Rumah Sakit Penangan")
-        
-    hosp_data = st.session_state.get('hosp_to_edit', {})
-    if hosp_data:
+    st.subheader("🏥 Tambah Data Rumah Sakit Penangan")
+    
+    hosp_data = st.session_state.get('hosp_to_edit', {})
+    if hosp_data:
         st.info(f"Mode Edit untuk Data RS ID: {hosp_data.get('id')}")
         if st.button("❌ Batal Edit", key="cancel_hosp_edit"):
             clear_session_state('hosp_to_edit')
