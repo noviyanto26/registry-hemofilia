@@ -1743,20 +1743,19 @@ with tab_hospital:
             for _, row in df_matches.iterrows()
         }
         selected_option = st.selectbox("Pilih riwayat penanganan:", options.keys(), key="select_hosp_box")
-        
-        # --- PERUBAHAN DI SINI: Tambah kolom untuk tombol Edit dan Hapus ---
-        c_edit, c_del, c_spacer = st.columns([1, 1, 2]) # Buat kolom
-        
-        with c_edit:
+        # --- PERUBAHAN DI SINI: Tambah kolom untuk tombol Edit dan Hapus ---
+        c_edit, c_del, c_spacer = st.columns([1, 1, 2]) # Buat kolom
+
+        with c_edit:
             if st.button("📝 Edit Riwayat Ini", key="select_hosp_button"): 
                 selected_id = options[selected_option]
                 set_editing_state('hosp_to_edit', selected_id, 'pwh.treatment_hospital')
                 clear_session_state('hosp_matches')
                 st.rerun()
         
-        with c_del:
+       with c_del:
             # Tombol Hapus Baru
-            if st.button("❌ Hapus Riwayat Ini", key="delete_hosp_button"):
+            if st.button("❌ Hapus Riwayat Ini", key="delete_hosp_button"):
                 selected_id = options[selected_option]
                 try:
                     # Panggil fungsi hapus yang sudah kita buat
