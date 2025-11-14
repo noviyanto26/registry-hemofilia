@@ -649,7 +649,7 @@ def update_treatment_hospital(id: int, payload: dict):
         treatment_type=:treatment_type, care_services=:care_services, frequency=:frequency, dose=:dose, product=:product, merk=:merk 
         WHERE id=:id;
     """
-    run_exec(sql, payload)
+    run_exec(sql, payload)
 
 # --- TAMBAHKAN FUNGSI BARU DI SINI ---
 def delete_treatment_hospital(id: int):
