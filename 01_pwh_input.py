@@ -1743,11 +1743,31 @@ with tab_hospital:
             for _, row in df_matches.iterrows()
         }
         selected_option = st.selectbox("Pilih riwayat penanganan:", options.keys(), key="select_hosp_box")
-        if st.button("Pilih Riwayat Ini", key="select_hosp_button"):
-            selected_id = options[selected_option]
-            set_editing_state('hosp_to_edit', selected_id, 'pwh.treatment_hospital')
-            clear_session_state('hosp_matches')
-            st.rerun()
+        
+        # --- PERUBAHAN DI SINI: Tambah kolom untuk tombol Edit dan Hapus ---
+        c_edit, c_del, c_spacer = st.columns([1, 1, 2]) # Buat kolom
+        
+        with c_edit:
+            if st.button("📝 Edit Riwayat Ini", key="select_hosp_button"): 
+                selected_id = options[selected_option]
+                set_editing_state('hosp_to_edit', selected_id, 'pwh.treatment_hospital')
+                clear_session_state('hosp_matches')
+                st.rerun()
+        
+        with c_del:
+            # Tombol Hapus Baru
+            if st.button("❌ Hapus Riwayat Ini", key="delete_hosp_button"):
+                selected_id = options[selected_option]
+                try:
+                    # Panggil fungsi hapus yang sudah kita buat
+                    delete_treatment_hospital(selected_id)
+                    st.success(f"Data Penanganan ID {selected_id} berhasil dihapus.")
+                    clear_session_state('hosp_matches')
+                    clear_session_state('hosp_to_edit') # Pastikan data edit juga bersih
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Gagal menghapus ID {selected_id}: {e}")
+        # --- AKHIR PERUBAHAN ---
 
     query_hosp = "SELECT th.id, th.patient_id, p.full_name, th.name_hospital, th.city_hospital, th.province_hospital, th.date_of_visit, th.doctor_in_charge, th.treatment_type, th.care_services, th.frequency, th.dose, th.product, th.merk FROM pwh.treatment_hospital th JOIN pwh.patients p ON p.id = th.patient_id"
     params_hosp = {}
@@ -1760,96 +1780,15 @@ with tab_hospital:
     df_th = run_df_branch(query_hosp, params_hosp)
     
     if not df_th.empty:
-        # --- START PERUBAHAN: Ganti st.dataframe ke st.data_editor ---
-        
-        # 1. Aliaskan DataFrame. Kita *tetap* butuh kolom 'id' dan 'patient_id'
-        #    untuk logika di balik layar.
-        df_th_aliased = _alias_df(df_th.copy(), ALIAS_HOSPITAL)
-        df_th_aliased = df_th_aliased.set_index("id")
-        
-        st.write(f"Total Data Penanganan: **{len(df_th_aliased)}**")
-        st.caption("Untuk menghapus data, **centang kotak** di sebelah kiri baris yang ingin dihapus, lalu klik ikon ➖ (hapus) yang muncul di **bagian bawah tabel**.")
-
-        # 2. Konfigurasi kolom: Sembunyikan patient_id dan NONAKTIFKAN EDITING
-        column_config = {
-            "patient_id": None, # Sembunyikan 'patient_id'
-        }
-        
-        # --- TAMBAHAN BARU: Nonaktifkan editing di semua kolom ---
-        # Ini untuk memperjelas ke Streamlit bahwa kita hanya ingin fungsi hapus,
-        # bukan edit, yang sepertinya akan memunculkan tombol '-'
-        
-        # Ambil semua kolom *setelah* 'id' jadi index
-        visible_cols = [col for col in df_th_aliased.columns if col != 'patient_id']
-        
-        for col_name in visible_cols:
-            # Tentukan tipe kolom untuk config
-            col_dtype = df_th_aliased[col_name].dtype
-            
-            # Cek untuk tanggal (termasuk object date dari DB)
-            is_date_like = False
-            if not df_th_aliased[col_name].dropna().empty:
-                first_valid = df_th_aliased[col_name].dropna().iloc[0]
-                if isinstance(first_valid, date):
-                    is_date_like = True
-
-            if pd.api.types.is_datetime64_any_dtype(col_dtype) or is_date_like:
-                 # Gunakan format YYYY-MM-DD agar konsisten
-                 column_config[col_name] = st.column_config.DateColumn(
-                     label=col_name, # Tetapkan label agar header tetap benar
-                     disabled=True, 
-                     format="YYYY-MM-DD"
-                 )
-            elif pd.api.types.is_numeric_dtype(col_dtype):
-                 column_config[col_name] = st.column_config.NumberColumn(
-                     label=col_name,
-                     disabled=True
-                 )
-            else:
-                 # Default ke TextColumn
-                 column_config[col_name] = st.column_config.TextColumn(
-                     label=col_name,
-                     disabled=True
-                 )
-        # --- AKHIR TAMBAHAN BARU ---
-       
-        # 3. Buat st.data_editor
-        edited_df_th = st.data_editor(
-            df_th_aliased,
-            use_container_width=True,
-            num_rows="dynamic", # Ini menambah tombol +/- untuk tambah/hapus
-            key="hosp_data_editor",
-            column_config=column_config
-        )
-
-        # 4. Logika untuk mendeteksi perubahan
-        
-        # Deteksi penambahan baris (baris baru akan punya ID NaN/None)
-        new_rows = edited_df_th[pd.isna(edited_df_th.index)]
-        if not new_rows.empty:
-            st.warning("Penambahan data tidak bisa dilakukan dari tabel. Silakan gunakan form 'Tambah Data' di bagian atas.", icon="⚠️")
-
-        # Deteksi penghapusan
-        original_ids = set(df_th['id'])
-        # Ambil ID dari editor, pastikan NaN (baris baru) tidak ikut
-        edited_ids = set(edited_df_th.index.dropna().astype(int)) 
-        
-        deleted_ids = original_ids - edited_ids
-
-        if deleted_ids:
-            for record_id in deleted_ids:
-                try:
-                    # Panggil fungsi hapus baru kita
-                    delete_treatment_hospital(record_id)
-                    st.success(f"Data Penanganan ID {record_id} berhasil dihapus.")
-                except Exception as e:
-                    st.error(f"Gagal menghapus ID {record_id}: {e}")
-            
-            # Rerun untuk merefleksikan penghapusan di tabel
-            st.rerun()
-        # --- END PERUBAHAN ---
+        # --- DIKEMBALIKAN KE st.dataframe ---
+        df_th_display = df_th.drop(columns=['id', 'patient_id'], errors='ignore')
+        df_th_display.index = range(1, len(df_th_display) + 1)
+        df_th_display.index.name = "No."
+        st.write(f"Total Data Penanganan: **{len(df_th_display)}**")
+        st.dataframe(_alias_df(df_th_display, ALIAS_HOSPITAL), use_container_width=True)
+        # --- AKHIR PENGEMBALIAN ---
     else:
-        st.info("Tidak ada data penanganan RS untuk ditampilkan.")
+        st.info("Tidak ada data penanganan RS untuk ditampilkan.")
 
 # Kematian
 with tab_death:
