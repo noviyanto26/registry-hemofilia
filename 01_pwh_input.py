@@ -1771,7 +1771,7 @@ with tab_hospital:
         st.caption("Untuk menghapus data, **centang kotak** di sebelah kiri baris yang ingin dihapus, lalu klik ikon ➖ (hapus) yang muncul di **bagian bawah tabel**.")
 
         # 2. Konfigurasi kolom: Sembunyikan patient_id dan NONAKTIFKAN EDITING
-        column_config = {
+        column_config = {
             "patient_id": None, # Sembunyikan 'patient_id'
         }
         
@@ -1780,7 +1780,7 @@ with tab_hospital:
         # bukan edit, yang sepertinya akan memunculkan tombol '-'
         
         # Ambil semua kolom *setelah* 'id' jadi index
-        visible_cols = [col for col in df_th_aliased.columns if col != 'patient_id']
+        visible_cols = [col for col in df_th_aliased.columns if col != 'patient_id']
         
         for col_name in visible_cols:
             # Tentukan tipe kolom untuk config
