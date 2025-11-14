@@ -1756,17 +1756,73 @@ with tab_hospital:
         params_hosp['name'] = f"%{st.session_state.hosp_selected_patient_name}%"
     query_hosp += " ORDER BY th.id DESC LIMIT 300;"
 
-    # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
-    df_th = run_df_branch(query_hosp, params_hosp)
+   # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
+    df_th = run_df_branch(query_hosp, params_hosp)
+        
+    if not df_th.empty:
+        # --- START PERUBAHAN: Ganti st.dataframe ke st.data_editor ---
         
-    if not df_th.empty:
-        df_th_display = df_th.drop(columns=['id', 'patient_id'], errors='ignore')
-        df_th_display.index = range(1, len(df_th_display) + 1)
-        df_th_display.index.name = "No."
-        st.write(f"Total Data Penanganan: **{len(df_th_display)}**")
-        st.dataframe(_alias_df(df_th_display, ALIAS_HOSPITAL), use_container_width=True)
-    else:
-        st.info("Tidak ada data penanganan RS untuk ditampilkan.")
+        # 1. Aliaskan DataFrame. Kita *tetap* butuh kolom 'id' dan 'patient_id'
+        #    untuk logika di balik layar.
+        df_th_aliased = _alias_df(df_th.copy(), ALIAS_HOSPITAL)
+        
+        st.write(f"Total Data Penanganan: **{len(df_th_aliased)}**")
+        st.caption("Untuk menghapus data, pilih baris (klik di mana saja di baris itu) lalu klik ikon ➖ (hapus) di bagian bawah tabel.")
+
+        # 2. Konfigurasi kolom: Sembunyikan ID, dan nonaktifkan pengeditan
+        column_config = {
+            "id": None, # Sembunyikan 'id'
+            "patient_id": None, # Sembunyikan 'patient_id'
+        }
+        # Nonaktifkan pengeditan untuk semua kolom lain yang ditampilkan
+        disabled_cols = []
+        for col_name in df_th_aliased.columns:
+            if col_name not in ["id", "patient_id"]:
+                disabled_cols.append(col_name)
+                column_config[col_name] = st.column_config.TextColumn(
+                    label=col_name, # Label sudah di-alias-kan
+                    disabled=True
+                )
+
+        # 3. Buat st.data_editor
+        edited_df_th = st.data_editor(
+            df_th_aliased,
+            use_container_width=True,
+            num_rows="dynamic", # Ini menambah tombol +/- untuk tambah/hapus
+            key="hosp_data_editor",
+            column_config=column_config,
+            disabled=disabled_cols, # Nonaktifkan pengeditan
+            hide_index=True
+        )
+
+        # 4. Logika untuk mendeteksi perubahan
+        
+        # Deteksi penambahan baris (baris baru akan punya ID NaN/None)
+        new_rows = edited_df_th[pd.isna(edited_df_th["id"])]
+        if not new_rows.empty:
+            st.warning("Penambahan data tidak bisa dilakukan dari tabel. Silakan gunakan form 'Tambah Data' di bagian atas.", icon="⚠️")
+
+        # Deteksi penghapusan
+        original_ids = set(df_th['id'])
+        # Ambil ID dari editor, pastikan NaN (baris baru) tidak ikut
+        edited_ids = set(edited_df_th["id"].dropna().astype(int)) 
+        
+        deleted_ids = original_ids - edited_ids
+
+        if deleted_ids:
+            for record_id in deleted_ids:
+                try:
+                    # Panggil fungsi hapus baru kita
+                    delete_treatment_hospital(record_id)
+                    st.success(f"Data Penanganan ID {record_id} berhasil dihapus.")
+                except Exception as e:
+                    st.error(f"Gagal menghapus ID {record_id}: {e}")
+            
+            # Rerun untuk merefleksikan penghapusan di tabel
+            st.rerun()
+        # --- END PERUBAHAN ---
+    else:
+        st.info("Tidak ada data penanganan RS untuk ditampilkan.")
 
 # Kematian
 with tab_death:
