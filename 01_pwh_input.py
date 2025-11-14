@@ -1632,11 +1632,11 @@ with tab_hospital:
     
     hosp_data = st.session_state.get('hosp_to_edit', {})
     if hosp_data:
-        st.info(f"Mode Edit untuk Data RS ID: {hosp_data.get('id')}")
-        if st.button("❌ Batal Edit", key="cancel_hosp_edit"):
-            clear_session_state('hosp_to_edit')
-            clear_session_state('hosp_matches')
-            st.rerun()
+        st.info(f"Mode Edit untuk Data RS ID: {hosp_data.get('id')}")
+        if st.button("❌ Batal Edit", key="cancel_hosp_edit"):
+            clear_session_state('hosp_to_edit')
+            clear_session_state('hosp_matches')
+            st.rerun()
             
     default_patient_id_hosp = hosp_data.get('patient_id') if hosp_data else None
     
