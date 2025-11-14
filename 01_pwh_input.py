@@ -641,15 +641,45 @@ def insert_treatment_hospital(payload: dict):
     run_exec(sql, payload)
 
 def update_treatment_hospital(id: int, payload: dict):
-    payload['id'] = id
-    sql = """
-        UPDATE pwh.treatment_hospital SET 
-        name_hospital=:name_hospital, city_hospital=:city_hospital, province_hospital=:province_hospital, 
-        date_of_visit=:date_of_visit, doctor_in_charge=:doctor_in_charge,
-        treatment_type=:treatment_type, care_services=:care_services, frequency=:frequency, dose=:dose, product=:product, merk=:merk 
-        WHERE id=:id;
-    """
-    run_exec(sql, payload)
+    payload['id'] = id
+    sql = """
+        UPDATE pwh.treatment_hospital SET 
+        name_hospital=:name_hospital, city_hospital=:city_hospital, province_hospital=:province_hospital, 
+        date_of_visit=:date_of_visit, doctor_in_charge=:doctor_in_charge,
+        treatment_type=:treatment_type, care_services=:care_services, frequency=:frequency, dose=:dose, product=:product, merk=:merk 
+        WHERE id=:id;
+    """
+    run_exec(sql, payload)
+
+# --- TAMBAHKAN FUNGSI BARU DI SINI ---
+def delete_treatment_hospital(id: int):
+    """Menghapus data penanganan RS dengan aman, memeriksa kepemilikan cabang."""
+    current_user_branch = st.session_state.get("user_branch", None)
+    is_admin = (current_user_branch == "ALL" or not current_user_branch)
+    
+    params = {"id": id}
+
+    if not is_admin:
+        # Jika bukan admin, pastikan data yg dihapus adalah milik pasien di cabangnya
+        sql = """
+            DELETE FROM pwh.treatment_hospital t
+            USING pwh.patients p
+            WHERE t.patient_id = p.id
+            AND t.id = :id
+            AND p.cabang = :branch
+            RETURNING t.id
+        """
+        params["branch"] = current_user_branch
+        # Kita perlu engine.begin() untuk mendapatkan return value
+        with engine.begin() as conn:
+            result = conn.execute(text(sql), params).scalar()
+            if result is None:
+                raise Exception("Gagal menghapus: Data tidak ditemukan di cabang Anda atau ID salah.")
+    else:
+        # Admin bisa hapus langsung by ID
+        sql = "DELETE FROM pwh.treatment_hospital WHERE id = :id"
+        run_exec(sql, params)
+# --- END FUNGSI BARU ---
 
 def insert_death_record(payload: dict):
     # Hanya boleh ada 1 record kematian per pasien
