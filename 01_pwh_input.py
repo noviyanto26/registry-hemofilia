@@ -1637,19 +1637,19 @@ with tab_hospital:
             clear_session_state('hosp_to_edit')
             clear_session_state('hosp_matches')
             st.rerun()
-            
-    default_patient_id_hosp = hosp_data.get('patient_id') if hosp_data else None
-    
-    pid_hosp = st.selectbox(
-        "Pilih Pasien (untuk data baru)",
-        options=patient_id_options, # Dropdown ini sudah difilter
-        index=patient_id_options.index(default_patient_id_hosp) if default_patient_id_hosp in patient_id_options else 0,
-        format_func=format_patient_name,
-        key="hosp_patient_selector",
-        disabled=bool(hosp_data)
+            
+    default_patient_id_hosp = hosp_data.get('patient_id') if hosp_data else None
+    
+    pid_hosp = st.selectbox(
+        "Pilih Pasien (untuk data baru)",
+        options=patient_id_options, # Dropdown ini sudah difilter
+        index=patient_id_options.index(default_patient_id_hosp) if default_patient_id_hosp in patient_id_options else 0,
+        format_func=format_patient_name,
+        key="hosp_patient_selector",
+        disabled=bool(hosp_data)
     )
     
-    with st.form("hospital::form", clear_on_submit=False):
+    with st.form("hospital::form", clear_on_submit=False):
         hospital_list = fetch_hospitals()
         name_h, city_h, prov_h = hosp_data.get('name_hospital'), hosp_data.get('city_hospital'), hosp_data.get('province_hospital')
         hosp_val = f"{name_h} - {city_h} - {prov_h}" if all([name_h, city_h, prov_h]) else ''
