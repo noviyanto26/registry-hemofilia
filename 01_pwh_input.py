@@ -1747,7 +1747,7 @@ with tab_hospital:
         c_edit, c_del, c_spacer = st.columns([1, 1, 2]) # Buat kolom
 
         with c_edit:
-            if st.button("📝 Edit Riwayat Ini", key="select_hosp_button"): 
+                if st.button("📝 Edit Riwayat Ini", key="select_hosp_button"): 
                 selected_id = options[selected_option]
                 set_editing_state('hosp_to_edit', selected_id, 'pwh.treatment_hospital')
                 clear_session_state('hosp_matches')
