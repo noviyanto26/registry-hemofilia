@@ -919,7 +919,7 @@ def set_editing_state(state_key, data_id, table_name):
 # TABS (Form Input)
 # ------------------------------------------------------------------------------
 
-# --- PERUBAHAN BESAR: Logika "Remember Tab" ---
+# --- PERUBAHAN: Mengembalikan ke Tab Statis ---
 # 1. Definisikan nama kanonis dan label tab
 TAB_MAP = {
     "Pasien": "🧑‍⚕️ Pasien",
@@ -932,36 +932,12 @@ TAB_MAP = {
     "Ringkasan": "📄 Ringkasan",
     "Export": "⬇️ Export"
 }
-TAB_NAMES = list(TAB_MAP.keys())
 
-# 2. Ambil tab aktif dari query param, default ke 'Pasien'
-try:
-    active_tab = st.query_params.get("tab", TAB_NAMES[0])
-    if active_tab not in TAB_NAMES:
-        active_tab = TAB_NAMES[0]
-except:
-    active_tab = TAB_NAMES[0] # Fallback jika query_params error
-
-# 3. Susun ulang daftar tab agar 'active_tab' menjadi yang pertama
-ordered_tab_names = [active_tab] + [name for name in TAB_NAMES if name != active_tab]
-
-# 4. Buat st.tabs secara dinamis
-tab_objects = st.tabs([TAB_MAP[name] for name in ordered_tab_names])
-
-# 5. Buat pemetaan dari NAMA KANONIS ke objek tab
-tab_dict = dict(zip(ordered_tab_names, tab_objects))
-
-# 6. Tetapkan variabel lama untuk kompatibilitas (meskipun beberapa mungkin None jika tidak aktif)
-tab_pat = tab_dict.get("Pasien")
-tab_diag = tab_dict.get("Diagnosis")
-tab_inh = tab_dict.get("Inhibitor")
-tab_virus = tab_dict.get("Virus")
-tab_hospital = tab_dict.get("Hospital")
-tab_death = tab_dict.get("Kematian")
-tab_contacts = tab_dict.get("Kontak")
-tab_view = tab_dict.get("Ringkasan")
-tab_export = tab_dict.get("Export")
-# --- AKHIR PERUBAHAN BESAR ---
+# 2. Buat tabs secara statis
+# Ini akan membuat "Pasien" selalu menjadi tab pertama
+# dan akan kembali ke tab ini setiap kali st.rerun() dipanggil
+tab_pat, tab_diag, tab_inh, tab_virus, tab_hospital, tab_death, tab_contacts, tab_view, tab_export = st.tabs(list(TAB_MAP.values()))
+# --- AKHIR PERUBAHAN ---
 
 
 # Patient
@@ -977,7 +953,7 @@ if tab_pat:
             if st.button("❌ Batal Edit", key="cancel_pat_edit"):
                 clear_session_state('patient_to_edit')
                 clear_session_state('patient_matches') # Hapus juga hasil pencarian
-                st.query_params["tab"] = "Pasien" # Remember tab
+                # st.query_params["tab"] = "Pasien" # Dihapus
                 st.rerun()
 
         df_wilayah_all = fetch_all_wilayah_details()
@@ -1181,7 +1157,7 @@ if tab_pat:
                         get_all_patients_for_selection.clear()
                         clear_session_state('patient_to_edit')
                         clear_session_state('patient_matches')
-                        st.query_params["tab"] = "Pasien" # Remember tab
+                        # st.query_params["tab"] = "Pasien" # Dihapus
                         st.rerun()
                 else:
                     # Logika insert
@@ -1201,7 +1177,7 @@ if tab_pat:
                         fetch_all_wilayah_details.clear()
                         fetch_hmhi_branches.clear() # <-- Clear cache baru
                         get_all_patients_for_selection.clear()
-                        st.query_params["tab"] = "Pasien" # Remember tab
+                        # st.query_params["tab"] = "Pasien" # Dihapus
                         st.rerun()
 
         st.markdown("---")
@@ -1220,7 +1196,7 @@ if tab_pat:
                 elif len(results_df) == 1:
                     set_editing_state('patient_to_edit', results_df.iloc[0]['id'], 'pwh.patients')
                     clear_session_state('patient_matches')
-                    st.query_params["tab"] = "Pasien" # Remember tab
+                    # st.query_params["tab"] = "Pasien" # Dihapus
                     st.rerun()
                 else:
                     st.info(f"Ditemukan {len(results_df)} pasien dengan nama serupa. Silakan pilih satu.")
@@ -1238,7 +1214,7 @@ if tab_pat:
                 selected_id = options[selected_option]
                 set_editing_state('patient_to_edit', selected_id, 'pwh.patients')
                 clear_session_state('patient_matches')
-                st.query_params["tab"] = "Pasien" # Remember tab
+                # st.query_params["tab"] = "Pasien" # Dihapus
                 st.rerun()
 
         # --- PERUBAHAN DI SINI: run_df_branch sudah otomatis memfilter ---
@@ -1325,7 +1301,7 @@ if tab_diag:
             if st.button("❌ Batal Edit", key="cancel_diag_edit"):
                 clear_session_state('diag_to_edit')
                 clear_session_state('diag_matches')
-                st.query_params["tab"] = "Diagnosis" # Remember tab
+                # st.query_params["tab"] = "Diagnosis" # Dihapus
                 st.rerun()
 
         # Tentukan pilihan default jika dalam mode edit
@@ -1358,12 +1334,12 @@ if tab_diag:
                 update_diagnosis(diag_data['id'], payload)
                 st.success("Diagnosis diperbarui.")
                 clear_session_state('diag_to_edit')
-                st.query_params["tab"] = "Diagnosis" # Remember tab
+                # st.query_params["tab"] = "Diagnosis" # Dihapus
                 st.rerun()
             elif pid_diag:
                 insert_diagnosis(int(pid_diag), hemo_type, severity, diagnosed_on, source)
                 st.success("Diagnosis disimpan/diperbarui.")
-                st.query_params["tab"] = "Diagnosis" # Remember tab
+                # st.query_params["tab"] = "Diagnosis" # Dihapus
                 st.rerun()
             else:
                 if not diag_data: st.warning("Silakan pilih pasien terlebih dahulu.")
@@ -1391,7 +1367,7 @@ if tab_diag:
                     st.warning("Riwayat diagnosis tidak ditemukan untuk pasien dengan nama tersebut (di cabang Anda).")
                 elif len(results_df) == 1:
                     set_editing_state('diag_to_edit', results_df.iloc[0]['id'], 'pwh.hemo_diagnoses')
-                    st.query_params["tab"] = "Diagnosis" # Remember tab
+                    # st.query_params["tab"] = "Diagnosis" # Dihapus
                     st.rerun()
                 else:
                     st.info(f"Ditemukan {len(results_df)} riwayat diagnosis. Silakan pilih satu untuk diedit.")
@@ -1411,7 +1387,7 @@ if tab_diag:
                 selected_id = options[selected_option]
                 set_editing_state('diag_to_edit', selected_id, 'pwh.hemo_diagnoses')
                 clear_session_state('diag_matches')
-                st.query_params["tab"] = "Diagnosis" # Remember tab
+                # st.query_params["tab"] = "Diagnosis" # Dihapus
                 st.rerun()
         
         query_diag = "SELECT d.id, d.patient_id, p.full_name, d.hemo_type, d.severity, d.diagnosed_on, d.source FROM pwh.hemo_diagnoses d JOIN pwh.patients p ON p.id = d.patient_id"
@@ -1445,7 +1421,7 @@ if tab_inh:
             if st.button("❌ Batal Edit", key="cancel_inh_edit"):
                 clear_session_state('inh_to_edit')
                 clear_session_state('inh_matches')
-                st.query_params["tab"] = "Inhibitor" # Remember tab
+                # st.query_params["tab"] = "Inhibitor" # Dihapus
                 st.rerun()
 
         default_patient_id_inh = inh_data.get('patient_id') if inh_data else None
@@ -1475,12 +1451,12 @@ if tab_inh:
                 update_inhibitor(inh_data['id'], payload)
                 st.success("Riwayat inhibitor diperbarui.")
                 clear_session_state('inh_to_edit')
-                st.query_params["tab"] = "Inhibitor" # Remember tab
+                # st.query_params["tab"] = "Inhibitor" # Dihapus
                 st.rerun()
             elif pid_inh:
                 insert_inhibitor(int(pid_inh), factor, float(titer_bu), measured_on, lab)
                 st.success("Riwayat inhibitor ditambahkan.")
-                st.query_params["tab"] = "Inhibitor" # Remember tab
+                # st.query_params["tab"] = "Inhibitor" # Dihapus
                 st.rerun()
             else:
                 if not inh_data: st.warning("Silakan pilih pasien terlebih dahulu.")
@@ -1509,7 +1485,7 @@ if tab_inh:
                     st.warning("Riwayat inhibitor tidak ditemukan (di cabang Anda).")
                 elif len(results_df) == 1:
                     set_editing_state('inh_to_edit', results_df.iloc[0]['id'], 'pwh.hemo_inhibitors')
-                    st.query_params["tab"] = "Inhibitor" # Remember tab
+                    # st.query_params["tab"] = "Inhibitor" # Dihapus
                     st.rerun()
                 else:
                     st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu.")
@@ -1529,7 +1505,7 @@ if tab_inh:
                 selected_id = options[selected_option]
                 set_editing_state('inh_to_edit', selected_id, 'pwh.hemo_inhibitors')
                 clear_session_state('inh_matches')
-                st.query_params["tab"] = "Inhibitor" # Remember tab
+                # st.query_params["tab"] = "Inhibitor" # Dihapus
                 st.rerun()
 
         query_inh = "SELECT i.id, i.patient_id, p.full_name, i.factor, i.titer_bu, i.measured_on, i.lab FROM pwh.hemo_inhibitors i JOIN pwh.patients p ON p.id = i.patient_id"
@@ -1562,7 +1538,7 @@ if tab_virus:
             if st.button("❌ Batal Edit", key="cancel_virus_edit"):
                 clear_session_state('virus_to_edit')
                 clear_session_state('virus_matches')
-                st.query_params["tab"] = "Virus" # Remember tab
+                # st.query_params["tab"] = "Virus" # Dihapus
                 st.rerun()
 
         default_patient_id_virus = virus_data.get('patient_id') if virus_data else None
@@ -1593,12 +1569,12 @@ if tab_virus:
                 update_virus_test(virus_data['id'], payload)
                 st.success("Hasil tes diperbarui.")
                 clear_session_state('virus_to_edit')
-                st.query_params["tab"] = "Virus" # Remember tab
+                # st.query_params["tab"] = "Virus" # Dihapus
                 st.rerun()
             elif pid_virus:
                 insert_virus_test(int(pid_virus), test_type, result, tested_on, lab)
                 st.success("Hasil tes disimpan.")
-                st.query_params["tab"] = "Virus" # Remember tab
+                # st.query_params["tab"] = "Virus" # Dihapus
                 st.rerun()
             else:
                 if not virus_data: st.warning("Silakan pilih pasien terlebih dahulu.")
@@ -1627,7 +1603,7 @@ if tab_virus:
                     st.warning("Riwayat tes virus tidak ditemukan (di cabang Anda).")
                 elif len(results_df) == 1:
                     set_editing_state('virus_to_edit', results_df.iloc[0]['id'], 'pwh.virus_tests')
-                    st.query_params["tab"] = "Virus" # Remember tab
+                    # st.query_params["tab"] = "Virus" # Dihapus
                     st.rerun()
                 else:
                     st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu.")
@@ -1647,7 +1623,7 @@ if tab_virus:
                 selected_id = options[selected_option]
                 set_editing_state('virus_to_edit', selected_id, 'pwh.virus_tests')
                 clear_session_state('virus_matches')
-                st.query_params["tab"] = "Virus" # Remember tab
+                # st.query_params["tab"] = "Virus" # Dihapus
                 st.rerun()
 
         query_virus = "SELECT v.id, v.patient_id, p.full_name, v.test_type, v.result, v.tested_on, v.lab FROM pwh.virus_tests v JOIN pwh.patients p ON p.id = v.patient_id"
@@ -1686,7 +1662,7 @@ if tab_hospital:
             if st.button("❌ Batal Edit", key="cancel_hosp_edit"):
                 clear_session_state('hosp_to_edit')
                 clear_session_state('hosp_matches')
-                st.query_params["tab"] = "Hospital" # Remember tab
+                # st.query_params["tab"] = "Hospital" # Dihapus
                 st.rerun()
                 
         default_patient_id_hosp = hosp_data.get('patient_id') if hosp_data else None
@@ -1746,13 +1722,13 @@ if tab_hospital:
                     update_treatment_hospital(hosp_data['id'], payload)
                     st.success("Data penanganan diperbarui.")
                     clear_session_state('hosp_to_edit')
-                    st.query_params["tab"] = "Hospital" # Remember tab
+                    # st.query_params["tab"] = "Hospital" # Dihapus
                     st.rerun()
                 elif pid_hosp:
                     payload['patient_id'] = int(pid_hosp)
                     insert_treatment_hospital(payload)
                     st.success("Data penanganan disimpan.")
-                    st.query_params["tab"] = "Hospital" # Remember tab
+                    # st.query_params["tab"] = "Hospital" # Dihapus
                     st.rerun()
                 else:
                     if not hosp_data: st.warning("Silakan pilih pasien terlebih dahulu.")
@@ -1780,7 +1756,7 @@ if tab_hospital:
                     st.warning("Riwayat penanganan RS tidak ditemukan (di cabang Anda).")
                 elif len(results_df) == 1:
                     set_editing_state('hosp_to_edit', results_df.iloc[0]['id'], 'pwh.treatment_hospital')
-                    st.query_params["tab"] = "Hospital" # Remember tab
+                    # st.query_params["tab"] = "Hospital" # Dihapus
                     st.rerun()
                 else:
                     st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu.")
@@ -1805,7 +1781,7 @@ if tab_hospital:
                     selected_id = options[selected_option]
                     set_editing_state('hosp_to_edit', selected_id, 'pwh.treatment_hospital')
                     clear_session_state('hosp_matches')
-                    st.query_params["tab"] = "Hospital" # Remember tab
+                    # st.query_params["tab"] = "Hospital" # Dihapus
                     st.rerun()
             
             with c_del:
@@ -1818,7 +1794,7 @@ if tab_hospital:
                         st.success(f"Data Penanganan ID {selected_id} berhasil dihapus.")
                         clear_session_state('hosp_matches')
                         clear_session_state('hosp_to_edit') # Pastikan data edit juga bersih
-                        st.query_params["tab"] = "Hospital" # Remember tab
+                        # st.query_params["tab"] = "Hospital" # Dihapus
                         st.rerun()
                     except Exception as e:
                         st.error(f"Gagal menghapus ID {selected_id}: {e}")
@@ -1853,7 +1829,7 @@ if tab_death:
             st.info(f"Mode Edit untuk Data Kematian ID: {death_data.get('id')}")
             if st.button("❌ Batal Edit", key="cancel_death_edit"):
                 clear_session_state('death_to_edit')
-                st.query_params["tab"] = "Kematian" # Remember tab
+                # st.query_params["tab"] = "Kematian" # Dihapus
                 st.rerun()
         
         default_patient_id_death = death_data.get('patient_id') if death_data else None
@@ -1888,13 +1864,13 @@ if tab_death:
                 update_death_record(death_data['id'], payload)
                 st.success("Data kematian diperbarui.")
                 clear_session_state('death_to_edit')
-                st.query_params["tab"] = "Kematian" # Remember tab
+                # st.query_params["tab"] = "Kematian" # Dihapus
                 st.rerun()
             elif pid_death:
                 payload['patient_id'] = int(pid_death)
                 insert_death_record(payload)
                 st.success("Data kematian disimpan.")
-                st.query_params["tab"] = "Kematian" # Remember tab
+                # st.query_params["tab"] = "Kematian" # Dihapus
                 st.rerun()
             else:
                 if not death_data: st.warning("Silakan pilih pasien terlebih dahulu.")
@@ -1920,7 +1896,7 @@ if tab_death:
                     st.warning("Data kematian tidak ditemukan (di cabang Anda).")
                 else:
                     set_editing_state('death_to_edit', results_df.iloc[0]['id'], 'pwh.death')
-                    st.query_params["tab"] = "Kematian" # Remember tab
+                    # st.query_params["tab"] = "Kematian" # Dihapus
                     st.rerun()
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
@@ -1957,7 +1933,7 @@ if tab_contacts:
             if st.button("❌ Batal Edit", key="cancel_cont_edit"):
                 clear_session_state('contact_to_edit')
                 clear_session_state('contact_matches')
-                st.query_params["tab"] = "Kontak" # Remember tab
+                # st.query_params["tab"] = "Kontak" # Dihapus
                 st.rerun()
         
         default_patient_id_cont = cont_data.get('patient_id') if cont_data else None
@@ -1991,12 +1967,12 @@ if tab_contacts:
                     update_contact(cont_data['id'], payload)
                     st.success("Kontak diperbarui.")
                     clear_session_state('contact_to_edit')
-                    st.query_params["tab"] = "Kontak" # Remember tab
+                    # st.query_params["tab"] = "Kontak" # Dihapus
                     st.rerun()
                 elif pid_cont:
                     insert_contact(int(pid_cont), relation, name, phone, is_primary)
                     st.success("Kontak baru ditambahkan.")
-                    st.query_params["tab"] = "Kontak" # Remember tab
+                    # st.query_params["tab"] = "Kontak" # Dihapus
                     st.rerun()
                 else:
                     if not cont_data: st.warning("Silakan pilih pasien terlebih dahulu.")
@@ -2025,7 +2001,7 @@ if tab_contacts:
                     st.warning("Kontak tidak ditemukan (di cabang Anda).")
                 elif len(results_df) == 1:
                     set_editing_state('contact_to_edit', results_df.iloc[0]['id'], 'pwh.contacts')
-                    st.query_params["tab"] = "Kontak" # Remember tab
+                    # st.query_params["tab"] = "Kontak" # Dihapus
                     st.rerun()
                 else:
                     st.info(f"Ditemukan {len(results_df)} kontak. Silakan pilih satu.")
@@ -2045,7 +2021,7 @@ if tab_contacts:
                 selected_id = options[selected_option]
                 set_editing_state('contact_to_edit', selected_id, 'pwh.contacts')
                 clear_session_state('contact_matches')
-                st.query_params["tab"] = "Kontak" # Remember tab
+                # st.query_params["tab"] = "Kontak" # Dihapus
                 st.rerun()
 
         query_cont = "SELECT c.id, c.patient_id, p.full_name, c.relation, c.name, c.phone, c.is_primary FROM pwh.contacts c JOIN pwh.patients p ON p.id = c.patient_id"
@@ -2133,7 +2109,7 @@ if tab_export:
                     fetch_occupations_list.clear()
                     fetch_hospitals.clear()
                     fetch_hmhi_branches.clear() # <-- Clear cache baru
-                    st.query_params["tab"] = "Export" # Remember tab
+                    # st.query_params["tab"] = "Export" # Dihapus
                     st.rerun() # Refresh data di tabel tampilan
                 except Exception as e:
                     st.error(f"Gagal import: {e}")
