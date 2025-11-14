@@ -641,7 +641,7 @@ def insert_treatment_hospital(payload: dict):
     run_exec(sql, payload)
 
 def update_treatment_hospital(id: int, payload: dict):
-    payload['id'] = id
+    payload['id'] = id
     sql = """
         UPDATE pwh.treatment_hospital SET 
         name_hospital=:name_hospital, city_hospital=:city_hospital, province_hospital=:province_hospital, 
