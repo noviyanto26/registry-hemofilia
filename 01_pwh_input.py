@@ -1758,8 +1758,8 @@ with tab_hospital:
 
    # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
     df_th = run_df_branch(query_hosp, params_hosp)
-        
-    if not df_th.empty:
+    
+    if not df_th.empty:
         # --- START PERUBAHAN: Ganti st.dataframe ke st.data_editor ---
         
         # 1. Aliaskan DataFrame. Kita *tetap* butuh kolom 'id' dan 'patient_id'
@@ -1821,7 +1821,7 @@ with tab_hospital:
             # Rerun untuk merefleksikan penghapusan di tabel
             st.rerun()
         # --- END PERUBAHAN ---
-    else:
+    else:
         st.info("Tidak ada data penanganan RS untuk ditampilkan.")
 
 # Kematian
