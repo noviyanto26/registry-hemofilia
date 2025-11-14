@@ -1822,7 +1822,7 @@ with tab_hospital:
             st.rerun()
         # --- END PERUBAHAN ---
     else:
-        st.info("Tidak ada data penanganan RS untuk ditampilkan.")
+        st.info("Tidak ada data penanganan RS untuk ditampilkan.")
 
 # Kematian
 with tab_death:
