@@ -1628,165 +1628,165 @@ with tab_virus:
 
 # Rumah Sakit Penangan
 with tab_hospital:
-    st.subheader("🏥 Tambah Data Rumah Sakit Penangan")
-        
-    hosp_data = st.session_state.get('hosp_to_edit', {})
-    if hosp_data:
-        st.info(f"Mode Edit untuk Data RS ID: {hosp_data.get('id')}")
-        if st.button("❌ Batal Edit", key="cancel_hosp_edit"):
-            clear_session_state('hosp_to_edit')
-            clear_session_state('hosp_matches')
-            st.rerun()
-            
-    default_patient_id_hosp = hosp_data.get('patient_id') if hosp_data else None
-    
-    pid_hosp = st.selectbox(
-        "Pilih Pasien (untuk data baru)",
-        options=patient_id_options, # Dropdown ini sudah difilter
-        index=patient_id_options.index(default_patient_id_hosp) if default_patient_id_hosp in patient_id_options else 0,
-        format_func=format_patient_name,
-        key="hosp_patient_selector",
-        disabled=bool(hosp_data)
-    )
-    
-    with st.form("hospital::form", clear_on_submit=False):
-        hospital_list = fetch_hospitals()
-        name_h, city_h, prov_h = hosp_data.get('name_hospital'), hosp_data.get('city_hospital'), hosp_data.get('province_hospital')
-        hosp_val = f"{name_h} - {city_h} - {prov_h}" if all([name_h, city_h, prov_h]) else ''
-        hosp_idx = get_safe_index(hospital_list, hosp_val)
-        hospital_selection = st.selectbox("Nama Rumah Sakit*", hospital_list, index=hosp_idx)
-        
-        col_date, col_doc = st.columns(2)
-        with col_date:
-            visit_date_val = pd.to_datetime(hosp_data.get('date_of_visit')).date() if pd.notna(hosp_data.get('date_of_visit')) else None
-            date_of_visit = st.date_input("Tanggal Kunjungan", value=visit_date_val, format="YYYY-MM-DD", min_value=date(1920, 1, 1))
-        with col_doc:
-            doctor_in_charge = st.text_input("DPJP", value=hosp_data.get('doctor_in_charge', ''))
-
-        col1, col2 = st.columns(2)
-        with col1:
-            ttype_idx = get_safe_index(TREATMENT_TYPES, hosp_data.get('treatment_type'))
-            treatment_type = st.selectbox("Jenis Penanganan", TREATMENT_TYPES, index=ttype_idx)
-        with col2:
-            cserv_idx = get_safe_index(CARE_SERVICES, hosp_data.get('care_services'))
-            care_services = st.selectbox("Layanan Rawat", CARE_SERVICES, index=cserv_idx)
-        col3, col4 = st.columns(2)
-        with col3: frequency = st.text_input("Frekuensi", placeholder="Contoh: 1x Seminggu", value=hosp_data.get('frequency', ''))
-        with col4: dose = st.text_input("Dosis", placeholder="Contoh: 1000 IU", value=hosp_data.get('dose', ''))
-        prod_idx = get_safe_index(PRODUCTS, hosp_data.get('product'))
-        product = st.selectbox("Produk", PRODUCTS, index=prod_idx) # Diubah ke 'Produk'
-        merk = st.text_input("Merk", value=hosp_data.get('merk', ''))
-        shosp_label = "Perbarui Data" if hosp_data else "Simpan Data Baru"
-        shosp = st.form_submit_button(f"💾 {shosp_label}", type="primary")
-
-    if shosp:
-        if not hospital_selection: st.error("Nama Rumah Sakit wajib diisi.")
-        else:
-            parts = hospital_selection.split(' - ')
-            name_h, city_h, prov_h = (parts[0].strip(), parts[1].strip(), parts[2].strip()) if len(parts) == 3 else (hospital_selection, None, None)
-            payload = { 
-                "name_hospital": name_h, "city_hospital": city_h, "province_hospital": prov_h, 
-                "date_of_visit": date_of_visit, "doctor_in_charge": (doctor_in_charge or "").strip() or None,
-                "treatment_type": treatment_type or None, "care_services": care_services or None, 
-                "frequency": (frequency or "").strip() or None, "dose": (dose or "").strip() or None, 
-                "product": product or None, "merk": (merk or "").strip() or None, 
-            }
-            if hosp_data:
-                update_treatment_hospital(hosp_data['id'], payload)
-                st.success("Data penanganan diperbarui.")
-                clear_session_state('hosp_to_edit')
-                st.rerun()
-            elif pid_hosp:
-                payload['patient_id'] = int(pid_hosp)
-                insert_treatment_hospital(payload)
-                st.success("Data penanganan disimpan.")
-                st.rerun()
-            else:
-                if not hosp_data: st.warning("Silakan pilih pasien terlebih dahulu.")
-            
-    st.markdown("---")
-    st.markdown("### 📋 Data Penanganan RS Terbaru")
-    
-    st.write("**Edit Data Penanganan RS**")
-    search_name_hosp = st.text_input("Ketik nama pasien untuk mencari riwayat dan mengedit", key="search_name_hosp")
-    if st.button("Cari Riwayat Penanganan", key="search_hosp_button"):
-        clear_session_state('hosp_to_edit')
-        clear_session_state('hosp_matches')
-        st.session_state.hosp_selected_patient_name = search_name_hosp
-
-        if search_name_hosp:
-            q = """
-                SELECT th.id, p.full_name, th.name_hospital, th.date_of_visit, th.product
-                FROM pwh.treatment_hospital th
-                JOIN pwh.patients p ON p.id = th.patient_id
-                WHERE p.full_name ILIKE :name ORDER BY th.id DESC
-            """
-            # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
-            results_df = run_df_branch(q, {"name": f"%{search_name_hosp}%"})
-
-            if results_df.empty:
-                st.warning("Riwayat penanganan RS tidak ditemukan (di cabang Anda).")
-            elif len(results_df) == 1:
-                set_editing_state('hosp_to_edit', results_df.iloc[0]['id'], 'pwh.treatment_hospital')
-                st.rerun()
-            else:
-                st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu.")
-                st.session_state.hosp_matches = results_df
-        else:
-            st.warning("Silakan masukkan nama untuk dicari.")
-            st.session_state.hosp_selected_patient_name = ""
-
-    if 'hosp_matches' in st.session_state and not st.session_state.hosp_matches.empty:
-        df_matches = st.session_state.hosp_matches
-        options = {
-            f"ID: {row['id']} - {row['name_hospital']} (Kunjungan: {row['date_of_visit']})": row['id']
-            for _, row in df_matches.iterrows()
-        }
-        selected_option = st.selectbox("Pilih riwayat penanganan:", options.keys(), key="select_hosp_box")
-        # --- PERUBAHAN DI SINI: Tambah kolom untuk tombol Edit dan Hapus ---
-        c_edit, c_del, c_spacer = st.columns([1, 1, 2]) # Buat kolom
-
-        with c_edit:
-            if st.button("📝 Edit Riwayat Ini", key="select_hosp_button"): 
-                selected_id = options[selected_option]
-                set_editing_state('hosp_to_edit', selected_id, 'pwh.treatment_hospital')
-                clear_session_state('hosp_matches')
-                st.rerun()
+    st.subheader("🏥 Tambah Data Rumah Sakit Penangan")
         
-       with c_del:
-            # Tombol Hapus Baru
-            if st.button("❌ Hapus Riwayat Ini", key="delete_hosp_button"):
-                selected_id = options[selected_option]
-                try:
-                    # Panggil fungsi hapus yang sudah kita buat
-                    delete_treatment_hospital(selected_id)
-                    st.success(f"Data Penanganan ID {selected_id} berhasil dihapus.")
-                    clear_session_state('hosp_matches')
-                    clear_session_state('hosp_to_edit') # Pastikan data edit juga bersih
-                    st.rerun()
+    hosp_data = st.session_state.get('hosp_to_edit', {})
+    if hosp_data:
+        st.info(f"Mode Edit untuk Data RS ID: {hosp_data.get('id')}")
+        if st.button("❌ Batal Edit", key="cancel_hosp_edit"):
+            clear_session_state('hosp_to_edit')
+            clear_session_state('hosp_matches')
+            st.rerun()
+            
+    default_patient_id_hosp = hosp_data.get('patient_id') if hosp_data else None
+    
+    pid_hosp = st.selectbox(
+        "Pilih Pasien (untuk data baru)",
+        options=patient_id_options, # Dropdown ini sudah difilter
+        index=patient_id_options.index(default_patient_id_hosp) if default_patient_id_hosp in patient_id_options else 0,
+        format_func=format_patient_name,
+        key="hosp_patient_selector",
+        disabled=bool(hosp_data)
+    )
+    
+    with st.form("hospital::form", clear_on_submit=False):
+        hospital_list = fetch_hospitals()
+        name_h, city_h, prov_h = hosp_data.get('name_hospital'), hosp_data.get('city_hospital'), hosp_data.get('province_hospital')
+        hosp_val = f"{name_h} - {city_h} - {prov_h}" if all([name_h, city_h, prov_h]) else ''
+        hosp_idx = get_safe_index(hospital_list, hosp_val)
+        hospital_selection = st.selectbox("Nama Rumah Sakit*", hospital_list, index=hosp_idx)
+        
+        col_date, col_doc = st.columns(2)
+        with col_date:
+            visit_date_val = pd.to_datetime(hosp_data.get('date_of_visit')).date() if pd.notna(hosp_data.get('date_of_visit')) else None
+            date_of_visit = st.date_input("Tanggal Kunjungan", value=visit_date_val, format="YYYY-MM-DD", min_value=date(1920, 1, 1))
+        with col_doc:
+            doctor_in_charge = st.text_input("DPJP", value=hosp_data.get('doctor_in_charge', ''))
+
+        col1, col2 = st.columns(2)
+        with col1:
+            ttype_idx = get_safe_index(TREATMENT_TYPES, hosp_data.get('treatment_type'))
+            treatment_type = st.selectbox("Jenis Penanganan", TREATMENT_TYPES, index=ttype_idx)
+        with col2:
+            cserv_idx = get_safe_index(CARE_SERVICES, hosp_data.get('care_services'))
+            care_services = st.selectbox("Layanan Rawat", CARE_SERVICES, index=cserv_idx)
+        col3, col4 = st.columns(2)
+        with col3: frequency = st.text_input("Frekuensi", placeholder="Contoh: 1x Seminggu", value=hosp_data.get('frequency', ''))
+        with col4: dose = st.text_input("Dosis", placeholder="Contoh: 1000 IU", value=hosp_data.get('dose', ''))
+        prod_idx = get_safe_index(PRODUCTS, hosp_data.get('product'))
+        product = st.selectbox("Produk", PRODUCTS, index=prod_idx) # Diubah ke 'Produk'
+        merk = st.text_input("Merk", value=hosp_data.get('merk', ''))
+        shosp_label = "Perbarui Data" if hosp_data else "Simpan Data Baru"
+        shosp = st.form_submit_button(f"💾 {shosp_label}", type="primary")
+
+    if shosp:
+        if not hospital_selection: st.error("Nama Rumah Sakit wajib diisi.")
+        else:
+            parts = hospital_selection.split(' - ')
+            name_h, city_h, prov_h = (parts[0].strip(), parts[1].strip(), parts[2].strip()) if len(parts) == 3 else (hospital_selection, None, None)
+            payload = { 
+                "name_hospital": name_h, "city_hospital": city_h, "province_hospital": prov_h, 
+                "date_of_visit": date_of_visit, "doctor_in_charge": (doctor_in_charge or "").strip() or None,
+                "treatment_type": treatment_type or None, "care_services": care_services or None, 
+                "frequency": (frequency or "").strip() or None, "dose": (dose or "").strip() or None, 
+                "product": product or None, "merk": (merk or "").strip() or None, 
+            }
+            if hosp_data:
+                update_treatment_hospital(hosp_data['id'], payload)
+        _         st.success("Data penanganan diperbarui.")
+                clear_session_state('hosp_to_edit')
+                st.rerun()
+            elif pid_hosp:
+                payload['patient_id'] = int(pid_hosp)
+                insert_treatment_hospital(payload)
+                st.success("Data penanganan disimpan.")
+                st.rerun()
+            else:
+                if not hosp_data: st.warning("Silakan pilih pasien terlebih dahulu.")
+            
+    st.markdown("---")
+    st.markdown("### 📋 Data Penanganan RS Terbaru")
+    
+    st.write("**Edit Data Penanganan RS**")
+    search_name_hosp = st.text_input("Ketik nama pasien untuk mencari riwayat dan mengedit", key="search_name_hosp")
+    if st.button("Cari Riwayat Penanganan", key="search_hosp_button"):
+        clear_session_state('hosp_to_edit')
+        clear_session_state('hosp_matches')
+        st.session_state.hosp_selected_patient_name = search_name_hosp
+
+        if search_name_hosp:
+            q = """
+                SELECT th.id, p.full_name, th.name_hospital, th.date_of_visit, th.product
+                FROM pwh.treatment_hospital th
+                JOIN pwh.patients p ON p.id = th.patient_id
+                WHERE p.full_name ILIKE :name ORDER BY th.id DESC
+            """
+          _ # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
+            results_df = run_df_branch(q, {"name": f"%{search_name_hosp}%"})
+
+            if results_df.empty:
+                st.warning("Riwayat penanganan RS tidak ditemukan (di cabang Anda).")
+            elif len(results_df) == 1:
+                set_editing_state('hosp_to_edit', results_df.iloc[0]['id'], 'pwh.treatment_hospital')
+                st.rerun()
+            else:
+                st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu.")
+                st.session_state.hosp_matches = results_df
+        else:
+            st.warning("Silakan masukkan nama untuk dicari.")
+            st.session_state.hosp_selected_patient_name = ""
+
+    if 'hosp_matches' in st.session_state and not st.session_state.hosp_matches.empty:
+        df_matches = st.session_state.hosp_matches
+        options = {
+            f"ID: {row['id']} - {row['name_hospital']} (Kunjungan: {row['date_of_visit']})": row['id']
+            for _, row in df_matches.iterrows()
+        }
+        selected_option = st.selectbox("Pilih riwayat penanganan:", options.keys(), key="select_hosp_box")
+        
+        # --- INI BLOK YANG DIPERBAIKI (PASTI BERSIH) ---
+        c_edit, c_del, c_spacer = st.columns([1, 1, 2]) # Buat kolom
+        
+        with c_edit:
+            if st.button("📝 Edit Riwayat Ini", key="select_hosp_button"): 
+                selected_id = options[selected_option]
+                set_editing_state('hosp_to_edit', selected_id, 'pwh.treatment_hospital')
+                clear_session_state('hosp_matches')
+                st.rerun()
+        
+        with c_del:
+            # Tombol Hapus Baru
+            if st.button("❌ Hapus Riwayat Ini", key="delete_hosp_button"):
+                selected_id = options[selected_option]
+                try:
+                    # Panggil fungsi hapus yang sudah kita buat
+                    delete_treatment_hospital(selected_id)
+                    st.success(f"Data Penanganan ID {selected_id} berhasil dihapus.")
+                    clear_session_state('hosp_matches')
+                    clear_session_state('hosp_to_edit') # Pastikan data edit juga bersih
+                    st.rerun()
                 except Exception as e:
-                    st.error(f"Gagal menghapus ID {selected_id}: {e}")
-        # --- AKHIR PERUBAHAN ---
+                    st.error(f"Gagal menghapus ID {selected_id}: {e}")
+        # --- AKHIR BLOK PERBAIKAN ---
 
-    query_hosp = "SELECT th.id, th.patient_id, p.full_name, th.name_hospital, th.city_hospital, th.province_hospital, th.date_of_visit, th.doctor_in_charge, th.treatment_type, th.care_services, th.frequency, th.dose, th.product, th.merk FROM pwh.treatment_hospital th JOIN pwh.patients p ON p.id = th.patient_id"
-    params_hosp = {}
-    if 'hosp_selected_patient_name' in st.session_state and st.session_state.hosp_selected_patient_name:
-        query_hosp += " WHERE p.full_name ILIKE :name"
-        params_hosp['name'] = f"%{st.session_state.hosp_selected_patient_name}%"
-    query_hosp += " ORDER BY th.id DESC LIMIT 300;"
+    query_hosp = "SELECT th.id, th.patient_id, p.full_name, th.name_hospital, th.city_hospital, th.province_hospital, th.date_of_visit, th.doctor_in_charge, th.treatment_type, th.care_services, th.frequency, th.dose, th.product, th.merk FROM pwh.treatment_hospital th JOIN pwh.patients p ON p.id = th.patient_id"
+    params_hosp = {}
+    if 'hosp_selected_patient_name' in st.session_state and st.session_state.hosp_selected_patient_name:
+        query_hosp += " WHERE p.full_name ILIKE :name"
+        params_hosp['name'] = f"%{st.session_state.hosp_selected_patient_name}%"
+e   query_hosp += " ORDER BY th.id DESC LIMIT 300;"
 
-   # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
-    df_th = run_df_branch(query_hosp, params_hosp)
-    
-    if not df_th.empty:
-        # --- DIKEMBALIKAN KE st.dataframe ---
+   # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
+    df_th = run_df_branch(query_hosp, params_hosp)
+    
+    # --- BLOK INI JUGA DIGANTI KEMBALI KE st.dataframe ---
+    if not df_th.empty:
         df_th_display = df_th.drop(columns=['id', 'patient_id'], errors='ignore')
         df_th_display.index = range(1, len(df_th_display) + 1)
         df_th_display.index.name = "No."
         st.write(f"Total Data Penanganan: **{len(df_th_display)}**")
         st.dataframe(_alias_df(df_th_display, ALIAS_HOSPITAL), use_container_width=True)
-        # --- AKHIR PENGEMBALIAN ---
-    else:
+    else:
         st.info("Tidak ada data penanganan RS untuk ditampilkan.")
 
 # Kematian
