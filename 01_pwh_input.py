@@ -1772,7 +1772,7 @@ with tab_hospital:
 
         # 2. Konfigurasi kolom: Sembunyikan patient_id dan NONAKTIFKAN EDITING
         column_config = {
-            "patient_id": None, # Sembunyikan 'patient_id'
+            "patient_id": None, # Sembunyikan 'patient_id'
         }
         
         # --- TAMBAHAN BARU: Nonaktifkan editing di semua kolom ---
