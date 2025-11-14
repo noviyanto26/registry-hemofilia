@@ -1774,16 +1774,7 @@ with tab_hospital:
             "id": None, # Sembunyikan 'id'
             "patient_id": None, # Sembunyikan 'patient_id'
         }
-        # Nonaktifkan pengeditan untuk semua kolom lain yang ditampilkan
-        disabled_cols = []
-        for col_name in df_th_aliased.columns:
-            if col_name not in ["id", "patient_id"]:
-                disabled_cols.append(col_name)
-                column_config[col_name] = st.column_config.TextColumn(
-                    label=col_name, # Label sudah di-alias-kan
-                    disabled=True
-                )
-
+       
         # 3. Buat st.data_editor
         edited_df_th = st.data_editor(
             df_th_aliased,
