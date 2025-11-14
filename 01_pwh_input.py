@@ -1765,13 +1765,13 @@ with tab_hospital:
         # 1. Aliaskan DataFrame. Kita *tetap* butuh kolom 'id' dan 'patient_id'
         #    untuk logika di balik layar.
         df_th_aliased = _alias_df(df_th.copy(), ALIAS_HOSPITAL)
+        df_th_aliased = df_th_aliased.set_index("id")
         
         st.write(f"Total Data Penanganan: **{len(df_th_aliased)}**")
-        st.caption("Untuk menghapus data, pilih baris (klik di mana saja di baris itu) lalu klik ikon ➖ (hapus) di bagian bawah tabel.")
+        st.caption("Untuk menghapus data, **centang kotak** di sebelah kiri baris yang ingin dihapus, lalu klik ikon ➖ (hapus) yang muncul di **bagian bawah tabel**.")
 
         # 2. Konfigurasi kolom: Sembunyikan ID, dan nonaktifkan pengeditan
         column_config = {
-            "id": None, # Sembunyikan 'id'
             "patient_id": None, # Sembunyikan 'patient_id'
         }
        
@@ -1781,21 +1781,20 @@ with tab_hospital:
             use_container_width=True,
             num_rows="dynamic", # Ini menambah tombol +/- untuk tambah/hapus
             key="hosp_data_editor",
-            column_config=column_config,
-            hide_index=True
+            column_config=column_config
         )
 
         # 4. Logika untuk mendeteksi perubahan
         
         # Deteksi penambahan baris (baris baru akan punya ID NaN/None)
-        new_rows = edited_df_th[pd.isna(edited_df_th["id"])]
+        new_rows = edited_df_th[pd.isna(edited_df_th.index)]
         if not new_rows.empty:
             st.warning("Penambahan data tidak bisa dilakukan dari tabel. Silakan gunakan form 'Tambah Data' di bagian atas.", icon="⚠️")
 
         # Deteksi penghapusan
         original_ids = set(df_th['id'])
         # Ambil ID dari editor, pastikan NaN (baris baru) tidak ikut
-        edited_ids = set(edited_df_th["id"].dropna().astype(int)) 
+        edited_ids = set(edited_df_th.index.dropna().astype(int)) 
         
         deleted_ids = original_ids - edited_ids
 
