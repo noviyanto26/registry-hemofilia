@@ -1791,7 +1791,6 @@ with tab_hospital:
             num_rows="dynamic", # Ini menambah tombol +/- untuk tambah/hapus
             key="hosp_data_editor",
             column_config=column_config,
-            disabled=disabled_cols, # Nonaktifkan pengeditan
             hide_index=True
         )
 
