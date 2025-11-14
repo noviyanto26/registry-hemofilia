@@ -1747,25 +1747,25 @@ with tab_hospital:
         c_edit, c_del, c_spacer = st.columns([1, 1, 2]) # Buat kolom
 
         with c_edit:
-            if st.button("📝 Edit Riwayat Ini", key="select_hosp_button"): 
-                selected_id = options[selected_option]
-                set_editing_state('hosp_to_edit', selected_id, 'pwh.treatment_hospital')
-                clear_session_state('hosp_matches')
-                st.rerun()
+            if st.button("📝 Edit Riwayat Ini", key="select_hosp_button"): 
+                selected_id = options[selected_option]
+                set_editing_state('hosp_to_edit', selected_id, 'pwh.treatment_hospital')
+                clear_session_state('hosp_matches')
+                st.rerun()
         
        with c_del:
-            # Tombol Hapus Baru
+            # Tombol Hapus Baru
             if st.button("❌ Hapus Riwayat Ini", key="delete_hosp_button"):
-                selected_id = options[selected_option]
-                try:
-                    # Panggil fungsi hapus yang sudah kita buat
-                    delete_treatment_hospital(selected_id)
-                    st.success(f"Data Penanganan ID {selected_id} berhasil dihapus.")
-                    clear_session_state('hosp_matches')
-                    clear_session_state('hosp_to_edit') # Pastikan data edit juga bersih
-                    st.rerun()
+                selected_id = options[selected_option]
+                try:
+                    # Panggil fungsi hapus yang sudah kita buat
+                    delete_treatment_hospital(selected_id)
+                    st.success(f"Data Penanganan ID {selected_id} berhasil dihapus.")
+                    clear_session_state('hosp_matches')
+                    clear_session_state('hosp_to_edit') # Pastikan data edit juga bersih
+                    st.rerun()
                 except Exception as e:
-                    st.error(f"Gagal menghapus ID {selected_id}: {e}")
+                    st.error(f"Gagal menghapus ID {selected_id}: {e}")
         # --- AKHIR PERUBAHAN ---
 
     query_hosp = "SELECT th.id, th.patient_id, p.full_name, th.name_hospital, th.city_hospital, th.province_hospital, th.date_of_visit, th.doctor_in_charge, th.treatment_type, th.care_services, th.frequency, th.dose, th.product, th.merk FROM pwh.treatment_hospital th JOIN pwh.patients p ON p.id = th.patient_id"
