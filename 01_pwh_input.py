@@ -212,7 +212,7 @@ def build_bulk_template_bytes() -> bytes:
             ("Jenis Penanganan", ("list", "treatment_types_vals")), # Use new named range
             ("Layanan Rawat", ("list", "care_services_vals")),     # Use new named range
             ("Frekuensi", "text"), ("Dosis", "text"),
-            ("Produk", ("list", "products_vals")),                # Use new named range
+            ("Produk", ("list", "products_vals")),                 # Use new named range
             ("Merk", "text"),
         ],
         "Kematian": [
@@ -261,9 +261,9 @@ def build_bulk_template_bytes() -> bytes:
             ("relations", relations), ("occupations", occupations),
             ("treatment_types_vals", treatment_types), # Nama baru untuk named range
             ("care_services_vals", care_services),     # Nama baru
-            ("products_vals", products),              # Nama baru
-            ("primary_vals", primary_bools),          # Nama baru
-            ("hmhi_cabang_vals", hmhi_branches)       # <-- TAMBAHAN BARU
+            ("products_vals", products),               # Nama baru
+            ("primary_vals", primary_bools),           # Nama baru
+            ("hmhi_cabang_vals", hmhi_branches)        # <-- TAMBAHAN BARU
         ]
         for j, (name, items) in enumerate(look_cols):
             ws_lk.write(0, j, name, fmt_header)
@@ -541,7 +541,7 @@ RHESUS       = [""] + (fetch_enum_vals("rhesus_enum")      or ["+","-"])
 GENDERS      = ["", "Laki-laki", "Perempuan"]
 EDUCATION_LEVELS = [""] + (fetch_enum_vals("education_enum") or ["Tidak sekolah", "SD", "SMP", "SMA/SMK", "Diploma", "S1", "S2", "S3"])
 HEMO_TYPES   = fetch_enum_vals("hemo_type_enum")      or ["A","B","vWD","Other"]
-SEVERITIES   = fetch_enum_vals("severity_enum")         or ["Ringan","Sedang","Berat","Tidak diketahui"]
+SEVERITIES   = fetch_enum_vals("severity_enum")           or ["Ringan","Sedang","Berat","Tidak diketahui"]
 INHIB_FACTORS= fetch_enum_vals("inhibitor_factor_enum") or ["FVIII","FIX"]
 VIRUS_TESTS  = fetch_enum_vals("virus_test_enum")       or ["HBsAg","Anti-HCV","HIV"]
 TEST_RESULTS = fetch_enum_vals("test_result_enum")    or ["positive","negative","indeterminate","unknown"]
@@ -657,6 +657,139 @@ def delete_treatment_hospital(id: int):
         # Admin bisa hapus langsung by ID
         sql = "DELETE FROM pwh.treatment_hospital WHERE id = :id"
         run_exec(sql, params)
+
+# ==============================================================================
+# --- START: BLOK FUNGSI DELETE BARU ---
+# ==============================================================================
+
+def delete_hemo_diagnosis(id: int):
+    """Menghapus data diagnosis dengan aman, memeriksa kepemilikan cabang."""
+    current_user_branch = st.session_state.get("user_branch", None)
+    is_admin = (current_user_branch == "ALL" or not current_user_branch)
+    
+    params = {"id": id}
+
+    if not is_admin:
+        sql = """
+            DELETE FROM pwh.hemo_diagnoses t
+            USING pwh.patients p
+            WHERE t.patient_id = p.id
+            AND t.id = :id
+            AND p.cabang = :branch
+            RETURNING t.id
+        """
+        params["branch"] = current_user_branch
+        with engine.begin() as conn:
+            result = conn.execute(text(sql), params).scalar()
+            if result is None:
+                raise Exception("Gagal menghapus: Data tidak ditemukan di cabang Anda atau ID salah.")
+    else:
+        sql = "DELETE FROM pwh.hemo_diagnoses WHERE id = :id"
+        run_exec(sql, params)
+
+def delete_hemo_inhibitor(id: int):
+    """Menghapus data inhibitor dengan aman, memeriksa kepemilikan cabang."""
+    current_user_branch = st.session_state.get("user_branch", None)
+    is_admin = (current_user_branch == "ALL" or not current_user_branch)
+    
+    params = {"id": id}
+
+    if not is_admin:
+        sql = """
+            DELETE FROM pwh.hemo_inhibitors t
+            USING pwh.patients p
+            WHERE t.patient_id = p.id
+            AND t.id = :id
+            AND p.cabang = :branch
+            RETURNING t.id
+        """
+        params["branch"] = current_user_branch
+        with engine.begin() as conn:
+            result = conn.execute(text(sql), params).scalar()
+            if result is None:
+                raise Exception("Gagal menghapus: Data tidak ditemukan di cabang Anda atau ID salah.")
+    else:
+        sql = "DELETE FROM pwh.hemo_inhibitors WHERE id = :id"
+        run_exec(sql, params)
+
+def delete_virus_test(id: int):
+    """Menghapus data tes virus dengan aman, memeriksa kepemilikan cabang."""
+    current_user_branch = st.session_state.get("user_branch", None)
+    is_admin = (current_user_branch == "ALL" or not current_user_branch)
+    
+    params = {"id": id}
+
+    if not is_admin:
+        sql = """
+            DELETE FROM pwh.virus_tests t
+            USING pwh.patients p
+            WHERE t.patient_id = p.id
+            AND t.id = :id
+            AND p.cabang = :branch
+            RETURNING t.id
+        """
+        params["branch"] = current_user_branch
+        with engine.begin() as conn:
+            result = conn.execute(text(sql), params).scalar()
+            if result is None:
+                raise Exception("Gagal menghapus: Data tidak ditemukan di cabang Anda atau ID salah.")
+    else:
+        sql = "DELETE FROM pwh.virus_tests WHERE id = :id"
+        run_exec(sql, params)
+
+def delete_death_record(id: int):
+    """Menghapus data kematian dengan aman, memeriksa kepemilikan cabang."""
+    current_user_branch = st.session_state.get("user_branch", None)
+    is_admin = (current_user_branch == "ALL" or not current_user_branch)
+    
+    params = {"id": id}
+
+    if not is_admin:
+        sql = """
+            DELETE FROM pwh.death t
+            USING pwh.patients p
+            WHERE t.patient_id = p.id
+            AND t.id = :id
+            AND p.cabang = :branch
+            RETURNING t.id
+        """
+        params["branch"] = current_user_branch
+        with engine.begin() as conn:
+            result = conn.execute(text(sql), params).scalar()
+            if result is None:
+                raise Exception("Gagal menghapus: Data tidak ditemukan di cabang Anda atau ID salah.")
+    else:
+        sql = "DELETE FROM pwh.death WHERE id = :id"
+        run_exec(sql, params)
+
+def delete_contact(id: int):
+    """Menghapus data kontak dengan aman, memeriksa kepemilikan cabang."""
+    current_user_branch = st.session_state.get("user_branch", None)
+    is_admin = (current_user_branch == "ALL" or not current_user_branch)
+    
+    params = {"id": id}
+
+    if not is_admin:
+        sql = """
+            DELETE FROM pwh.contacts t
+            USING pwh.patients p
+            WHERE t.patient_id = p.id
+            AND t.id = :id
+            AND p.cabang = :branch
+            RETURNING t.id
+        """
+        params["branch"] = current_user_branch
+        with engine.begin() as conn:
+            result = conn.execute(text(sql), params).scalar()
+            if result is None:
+                raise Exception("Gagal menghapus: Data tidak ditemukan di cabang Anda atau ID salah.")
+    else:
+        sql = "DELETE FROM pwh.contacts WHERE id = :id"
+        run_exec(sql, params)
+
+# ==============================================================================
+# --- END: BLOK FUNGSI DELETE BARU ---
+# ==============================================================================
 
 def insert_death_record(payload: dict):
     # Hanya boleh ada 1 record kematian per pasien
@@ -825,7 +958,7 @@ def import_bulk_excel(file) -> dict:
                              "treatment_type": _safe_str(r.get("treatment_type")), "care_services": _safe_str(r.get("care_services")), "frequency": _safe_str(r.get("frequency")), "dose": _safe_str(r.get("dose")),
                              "product": _safe_str(r.get("product")), "merk": _safe_str(r.get("merk"))
                          })
-                        ),
+                       ),
         "Kematian": ("kematian",
                        ["patient_id", "full_name", "cause_of_death", "year_of_death"],
                        MAP_DEATH,
@@ -834,7 +967,7 @@ def import_bulk_excel(file) -> dict:
                            "cause_of_death": _safe_str(r.get("cause_of_death")),
                            "year_of_death": pd.to_numeric(r.get("year_of_death"), errors='coerce')
                        })
-                      ),
+                     ),
         "Kontak": ("kontak",
                        ["patient_id","full_name","relation","name","phone","is_primary"],
                        MAP_CONTACT,
@@ -875,7 +1008,7 @@ def clear_session_state(prefix):
         del st.session_state[k]
 
 def auto_pick_latest_for_edit(df, state_key: str, table_fullname: str,
-                                id_col: str = "id", order_cols: list[str] | None = None):
+                              id_col: str = "id", order_cols: list[str] | None = None):
     # Abaikan jika tidak ada data
     if df is None or getattr(df, "empty", True):
         return
@@ -1346,7 +1479,7 @@ if tab_diag:
 
         st.markdown("---")
         st.markdown("### 📋 Data Diagnosis Terbaru")
-        st.write("**Edit Data Diagnosis**")
+        st.write("**Edit/Hapus Data Diagnosis**") # Label diubah
         search_name_diag = st.text_input("Ketik nama pasien untuk mencari riwayat dan mengedit", key="search_name_diag")
         if st.button("Cari Riwayat Diagnosis", key="search_diag_button"):
             clear_session_state('diag_to_edit')
@@ -1370,7 +1503,7 @@ if tab_diag:
                     # st.query_params["tab"] = "Diagnosis" # Dihapus
                     st.rerun()
                 else:
-                    st.info(f"Ditemukan {len(results_df)} riwayat diagnosis. Silakan pilih satu untuk diedit.")
+                    st.info(f"Ditemukan {len(results_df)} riwayat diagnosis. Silakan pilih satu untuk diedit/dihapus.") # Label diubah
                     st.session_state.diag_matches = results_df
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
@@ -1382,14 +1515,31 @@ if tab_diag:
                 f"ID: {row['id']} - {row['hemo_type']} (Tgl: {row['diagnosed_on']})": row['id']
                 for _, row in df_matches.iterrows()
             }
-            selected_option = st.selectbox("Pilih riwayat diagnosis yang akan diedit:", options.keys(), key="select_diag_box")
-            if st.button("Pilih Riwayat Ini", key="select_diag_button"):
-                selected_id = options[selected_option]
-                set_editing_state('diag_to_edit', selected_id, 'pwh.hemo_diagnoses')
-                clear_session_state('diag_matches')
-                # st.query_params["tab"] = "Diagnosis" # Dihapus
-                st.rerun()
-        
+            selected_option = st.selectbox("Pilih riwayat diagnosis yang akan diedit/dihapus:", options.keys(), key="select_diag_box") # Label diubah
+            
+            # --- START: BLOK TOMBOL EDIT/DELETE ---
+            c_edit, c_del, c_spacer = st.columns([1, 1, 2])
+            with c_edit:
+                if st.button("📝 Edit Riwayat Ini", key="select_diag_button"):
+                    selected_id = options[selected_option]
+                    set_editing_state('diag_to_edit', selected_id, 'pwh.hemo_diagnoses')
+                    clear_session_state('diag_matches')
+                    # st.query_params["tab"] = "Diagnosis" # Dihapus
+                    st.rerun()
+            with c_del:
+                if st.button("❌ Hapus Riwayat Ini", key="delete_diag_button"):
+                    selected_id = options[selected_option]
+                    try:
+                        delete_hemo_diagnosis(selected_id) # Panggil fungsi delete baru
+                        st.success(f"Data Diagnosis ID {selected_id} berhasil dihapus.")
+                        clear_session_state('diag_matches')
+                        clear_session_state('diag_to_edit') # Bersihkan juga state edit
+                        # st.query_params["tab"] = "Diagnosis" # Dihapus
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal menghapus ID {selected_id}: {e}")
+            # --- END: BLOK TOMBOL EDIT/DELETE ---
+            
         query_diag = "SELECT d.id, d.patient_id, p.full_name, d.hemo_type, d.severity, d.diagnosed_on, d.source FROM pwh.hemo_diagnoses d JOIN pwh.patients p ON p.id = d.patient_id"
         params = {}
         if 'diag_selected_patient_name' in st.session_state and st.session_state.diag_selected_patient_name:
@@ -1464,7 +1614,7 @@ if tab_inh:
         st.markdown("---")
         st.markdown("### 📋 Data Inhibitor Terbaru")
         
-        st.write("**Edit Data Inhibitor**")
+        st.write("**Edit/Hapus Data Inhibitor**") # Label diubah
         search_name_inh = st.text_input("Ketik nama pasien untuk mencari riwayat dan mengedit", key="search_name_inh")
         if st.button("Cari Riwayat Inhibitor", key="search_inh_button"):
             clear_session_state('inh_to_edit')
@@ -1488,7 +1638,7 @@ if tab_inh:
                     # st.query_params["tab"] = "Inhibitor" # Dihapus
                     st.rerun()
                 else:
-                    st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu.")
+                    st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu untuk diedit/dihapus.") # Label diubah
                     st.session_state.inh_matches = results_df
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
@@ -1501,12 +1651,29 @@ if tab_inh:
                 for _, row in df_matches.iterrows()
             }
             selected_option = st.selectbox("Pilih riwayat inhibitor:", options.keys(), key="select_inh_box")
-            if st.button("Pilih Riwayat Ini", key="select_inh_button"):
-                selected_id = options[selected_option]
-                set_editing_state('inh_to_edit', selected_id, 'pwh.hemo_inhibitors')
-                clear_session_state('inh_matches')
-                # st.query_params["tab"] = "Inhibitor" # Dihapus
-                st.rerun()
+            
+            # --- START: BLOK TOMBOL EDIT/DELETE ---
+            c_edit, c_del, c_spacer = st.columns([1, 1, 2])
+            with c_edit:
+                if st.button("📝 Edit Riwayat Ini", key="select_inh_button"):
+                    selected_id = options[selected_option]
+                    set_editing_state('inh_to_edit', selected_id, 'pwh.hemo_inhibitors')
+                    clear_session_state('inh_matches')
+                    # st.query_params["tab"] = "Inhibitor" # Dihapus
+                    st.rerun()
+            with c_del:
+                if st.button("❌ Hapus Riwayat Ini", key="delete_inh_button"):
+                    selected_id = options[selected_option]
+                    try:
+                        delete_hemo_inhibitor(selected_id) # Panggil fungsi delete baru
+                        st.success(f"Data Inhibitor ID {selected_id} berhasil dihapus.")
+                        clear_session_state('inh_matches')
+                        clear_session_state('inh_to_edit') # Bersihkan juga state edit
+                        # st.query_params["tab"] = "Inhibitor" # Dihapus
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal menghapus ID {selected_id}: {e}")
+            # --- END: BLOK TOMBOL EDIT/DELETE ---
 
         query_inh = "SELECT i.id, i.patient_id, p.full_name, i.factor, i.titer_bu, i.measured_on, i.lab FROM pwh.hemo_inhibitors i JOIN pwh.patients p ON p.id = i.patient_id"
         params_inh = {}
@@ -1582,7 +1749,7 @@ if tab_virus:
         st.markdown("---")
         st.markdown("### 📋 Data Tes Virus Terbaru")
         
-        st.write("**Edit Data Tes Virus**")
+        st.write("**Edit/Hapus Data Tes Virus**") # Label diubah
         search_name_virus = st.text_input("Ketik nama pasien untuk mencari riwayat dan mengedit", key="search_name_virus")
         if st.button("Cari Riwayat Tes Virus", key="search_virus_button"):
             clear_session_state('virus_to_edit')
@@ -1606,7 +1773,7 @@ if tab_virus:
                     # st.query_params["tab"] = "Virus" # Dihapus
                     st.rerun()
                 else:
-                    st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu.")
+                    st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu untuk diedit/dihapus.") # Label diubah
                     st.session_state.virus_matches = results_df
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
@@ -1619,12 +1786,29 @@ if tab_virus:
                 for _, row in df_matches.iterrows()
             }
             selected_option = st.selectbox("Pilih riwayat tes:", options.keys(), key="select_virus_box")
-            if st.button("Pilih Riwayat Ini", key="select_virus_button"):
-                selected_id = options[selected_option]
-                set_editing_state('virus_to_edit', selected_id, 'pwh.virus_tests')
-                clear_session_state('virus_matches')
-                # st.query_params["tab"] = "Virus" # Dihapus
-                st.rerun()
+
+            # --- START: BLOK TOMBOL EDIT/DELETE ---
+            c_edit, c_del, c_spacer = st.columns([1, 1, 2])
+            with c_edit:
+                if st.button("📝 Edit Riwayat Ini", key="select_virus_button"):
+                    selected_id = options[selected_option]
+                    set_editing_state('virus_to_edit', selected_id, 'pwh.virus_tests')
+                    clear_session_state('virus_matches')
+                    # st.query_params["tab"] = "Virus" # Dihapus
+                    st.rerun()
+            with c_del:
+                if st.button("❌ Hapus Riwayat Ini", key="delete_virus_button"):
+                    selected_id = options[selected_option]
+                    try:
+                        delete_virus_test(selected_id) # Panggil fungsi delete baru
+                        st.success(f"Data Tes Virus ID {selected_id} berhasil dihapus.")
+                        clear_session_state('virus_matches')
+                        clear_session_state('virus_to_edit') # Bersihkan juga state edit
+                        # st.query_params["tab"] = "Virus" # Dihapus
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal menghapus ID {selected_id}: {e}")
+            # --- END: BLOK TOMBOL EDIT/DELETE ---
 
         query_virus = "SELECT v.id, v.patient_id, p.full_name, v.test_type, v.result, v.tested_on, v.lab FROM pwh.virus_tests v JOIN pwh.patients p ON p.id = v.patient_id"
         params_virus = {}
@@ -1736,7 +1920,7 @@ if tab_hospital:
         st.markdown("---")
         st.markdown("### 📋 Data Penanganan RS Terbaru")
         
-        st.write("**Edit Data Penanganan RS**")
+        st.write("**Edit/Hapus Data Penanganan RS**") # Label diubah
         search_name_hosp = st.text_input("Ketik nama pasien untuk mencari riwayat dan mengedit", key="search_name_hosp")
         if st.button("Cari Riwayat Penanganan", key="search_hosp_button"):
             clear_session_state('hosp_to_edit')
@@ -1759,7 +1943,7 @@ if tab_hospital:
                     # st.query_params["tab"] = "Hospital" # Dihapus
                     st.rerun()
                 else:
-                    st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu.")
+                    st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu untuk diedit/dihapus.") # Label diubah
                     st.session_state.hosp_matches = results_df
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
@@ -1829,6 +2013,7 @@ if tab_death:
             st.info(f"Mode Edit untuk Data Kematian ID: {death_data.get('id')}")
             if st.button("❌ Batal Edit", key="cancel_death_edit"):
                 clear_session_state('death_to_edit')
+                clear_session_state('death_matches') # Tambahkan ini
                 # st.query_params["tab"] = "Kematian" # Dihapus
                 st.rerun()
         
@@ -1864,6 +2049,7 @@ if tab_death:
                 update_death_record(death_data['id'], payload)
                 st.success("Data kematian diperbarui.")
                 clear_session_state('death_to_edit')
+                clear_session_state('death_matches') # Tambahkan ini
                 # st.query_params["tab"] = "Kematian" # Dihapus
                 st.rerun()
             elif pid_death:
@@ -1878,29 +2064,69 @@ if tab_death:
         st.markdown("---")
         st.markdown("### 📋 Data Kematian Terbaru")
 
-        st.write("**Edit Data Kematian**")
-        search_name_death = st.text_input("Ketik nama pasien untuk mencari & mengedit", key="search_name_death")
+        st.write("**Edit/Hapus Data Kematian**") # Label diubah
+        search_name_death = st.text_input("Ketik nama pasien untuk mencari & mengedit/hapus", key="search_name_death") # Label diubah
+        
+        # --- START: BLOK SEARCH KEMATIAN DIMODIFIKASI ---
         if st.button("Cari Data Kematian", key="search_death_button"):
             clear_session_state('death_to_edit')
+            clear_session_state('death_matches') # Hapus state matches sebelumnya
             st.session_state.death_selected_patient_name = search_name_death
 
             if search_name_death:
                 q = """
-                    SELECT d.id FROM pwh.death d
+                    SELECT d.id, p.full_name, d.year_of_death
+                    FROM pwh.death d
                     JOIN pwh.patients p ON p.id = d.patient_id
                     WHERE p.full_name ILIKE :name
                 """
                 # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
                 results_df = run_df_branch(q, {"name": f"%{search_name_death}%"})
+                
                 if results_df.empty:
                     st.warning("Data kematian tidak ditemukan (di cabang Anda).")
                 else:
-                    set_editing_state('death_to_edit', results_df.iloc[0]['id'], 'pwh.death')
-                    # st.query_params["tab"] = "Kematian" # Dihapus
-                    st.rerun()
+                    # Selalu set 'matches' meskipun hanya ada 1
+                    st.info(f"Ditemukan 1 data kematian. Pilih untuk edit/hapus.")
+                    st.session_state.death_matches = results_df
+                    # JANGAN st.rerun() di sini
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
                 st.session_state.death_selected_patient_name = ""
+        
+        # --- START: BLOK BARU UNTUK MENANGANI 'death_matches' ---
+        if 'death_matches' in st.session_state and not st.session_state.death_matches.empty:
+            df_matches = st.session_state.death_matches
+            # Karena unik per pasien, kita bisa asumsikan hanya ada 1 baris
+            row = df_matches.iloc[0]
+            options = {
+                f"ID: {row['id']} - {row['full_name']} (Tahun: {row['year_of_death']})": row['id']
+            }
+            
+            selected_option = st.selectbox("Pilih data kematian:", options.keys(), key="select_death_box")
+            
+            c_edit, c_del, c_spacer = st.columns([1, 1, 2])
+            with c_edit:
+                if st.button("📝 Edit Data Ini", key="select_death_button"):
+                    selected_id = options[selected_option]
+                    set_editing_state('death_to_edit', selected_id, 'pwh.death')
+                    clear_session_state('death_matches')
+                    # st.query_params["tab"] = "Kematian" # Dihapus
+                    st.rerun()
+            with c_del:
+                if st.button("❌ Hapus Data Ini", key="delete_death_button"):
+                    selected_id = options[selected_option]
+                    try:
+                        delete_death_record(selected_id) # Panggil fungsi delete baru
+                        st.success(f"Data Kematian ID {selected_id} berhasil dihapus.")
+                        clear_session_state('death_matches')
+                        clear_session_state('death_to_edit')
+                        # st.query_params["tab"] = "Kematian" # Dihapus
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal menghapus ID {selected_id}: {e}")
+        # --- END: BLOK BARU ---
+        # --- END: BLOK SEARCH KEMATIAN DIMODIFIKASI ---
 
         query_death = "SELECT d.id, d.patient_id, p.full_name, d.cause_of_death, d.year_of_death FROM pwh.death d JOIN pwh.patients p ON p.id = d.patient_id"
         params_death = {}
@@ -1980,7 +2206,7 @@ if tab_contacts:
         st.markdown("---")
         st.markdown("### 📋 Data Kontak Terbaru")
         
-        st.write("**Edit Data Kontak**")
+        st.write("**Edit/Hapus Data Kontak**") # Label diubah
         search_name_cont = st.text_input("Ketik nama pasien untuk mencari riwayat dan mengedit", key="search_name_cont")
         if st.button("Cari Kontak", key="search_cont_button"):
             clear_session_state('contact_to_edit')
@@ -2004,7 +2230,7 @@ if tab_contacts:
                     # st.query_params["tab"] = "Kontak" # Dihapus
                     st.rerun()
                 else:
-                    st.info(f"Ditemukan {len(results_df)} kontak. Silakan pilih satu.")
+                    st.info(f"Ditemukan {len(results_df)} kontak. Silakan pilih satu untuk diedit/dihapus.") # Label diubah
                     st.session_state.contact_matches = results_df
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
@@ -2017,12 +2243,29 @@ if tab_contacts:
                 for _, row in df_matches.iterrows()
             }
             selected_option = st.selectbox("Pilih kontak:", options.keys(), key="select_cont_box")
-            if st.button("Pilih Kontak Ini", key="select_cont_button"):
-                selected_id = options[selected_option]
-                set_editing_state('contact_to_edit', selected_id, 'pwh.contacts')
-                clear_session_state('contact_matches')
-                # st.query_params["tab"] = "Kontak" # Dihapus
-                st.rerun()
+
+            # --- START: BLOK TOMBOL EDIT/DELETE ---
+            c_edit, c_del, c_spacer = st.columns([1, 1, 2])
+            with c_edit:
+                if st.button("📝 Edit Kontak Ini", key="select_cont_button"):
+                    selected_id = options[selected_option]
+                    set_editing_state('contact_to_edit', selected_id, 'pwh.contacts')
+                    clear_session_state('contact_matches')
+                    # st.query_params["tab"] = "Kontak" # Dihapus
+                    st.rerun()
+            with c_del:
+                if st.button("❌ Hapus Kontak Ini", key="delete_cont_button"):
+                    selected_id = options[selected_option]
+                    try:
+                        delete_contact(selected_id) # Panggil fungsi delete baru
+                        st.success(f"Data Kontak ID {selected_id} berhasil dihapus.")
+                        clear_session_state('contact_matches')
+                        clear_session_state('contact_to_edit') # Bersihkan juga state edit
+                        # st.query_params["tab"] = "Kontak" # Dihapus
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal menghapus ID {selected_id}: {e}")
+            # --- END: BLOK TOMBOL EDIT/DELETE ---
 
         query_cont = "SELECT c.id, c.patient_id, p.full_name, c.relation, c.name, c.phone, c.is_primary FROM pwh.contacts c JOIN pwh.patients p ON p.id = c.patient_id"
         params_cont = {}
