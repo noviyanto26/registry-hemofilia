@@ -916,6 +916,21 @@ def import_bulk_excel(file) -> dict:
             else:
                 payload["kota_cakupan"] = None # Cabang user tidak ada di list
         
+        # --- PERBAIKAN: Validasi NIK Bulk ---
+        if not payload["full_name"]:
+            # st.warning("Melewatkan baris tanpa Nama Lengkap.")
+            continue # Lewati baris
+            
+        nik_bulk = payload.get("nik")
+        if not nik_bulk:
+            st.error(f"Gagal impor '{payload['full_name']}': NIK wajib diisi.")
+            continue # Lewati baris ini
+
+        if len(nik_bulk) != 16:
+            st.error(f"Gagal impor '{payload['full_name']}': NIK '{nik_bulk}' harus 16 digit (memiliki {len(nik_bulk)} digit).")
+            continue # Lewati baris ini
+        # --- AKHIR PERBAIKAN ---
+
         pid = insert_patient(payload)
         inserted_patients.append((pid, payload["full_name"]))
 
@@ -930,7 +945,9 @@ def import_bulk_excel(file) -> dict:
         if pd.notna(pid) and str(pid).strip():
             try: return int(pid)
             except Exception: pass
-        nm = _safe_str(row.get("full_name")).lower() # 'full_name' sudah di-rename dari 'Nama Lengkap'
+        nm_val = row.get("full_name")
+        if nm_val is None: return None
+        nm = _safe_str(nm_val).lower() # 'full_name' sudah di-rename dari 'Nama Lengkap'
         if nm: return map_new.get(nm) or map_db.get(nm)
         return None
 
@@ -1232,15 +1249,24 @@ if tab_pat:
             form_label = "💾 Perbarui Pasien" if pat_data else "💾 Simpan Pasien Baru"
             submitted = st.button(form_label, type="primary")
 
+        # ==============================================================
+        # --- START: BLOK VALIDASI NIK (PERBAIKAN) ---
+        # ==============================================================
         if submitted:
+            # --- PERBAIKAN: Validasi NIK ---
+            nik_cleaned = (nik or "").strip()
+            
             if not (full_name or "").strip():
                 st.error("Nama Lengkap wajib diisi.")
-            elif not (nik or "").strip():
+            elif not nik_cleaned:
                 st.error("NIK wajib diisi.")
+            elif len(nik_cleaned) != 16:
+                st.error(f"NIK harus terdiri dari 16 digit. NIK yang Anda masukkan ({nik_cleaned}) memiliki {len(nik_cleaned)} digit.")
+            # --- AKHIR PERBAIKAN ---
             else:
                 payload = {
                     "full_name": full_name.strip(), "birth_place": (birth_place or "").strip() or None,
-                    "birth_date": birth_date, "nik": (nik or "").strip(),
+                    "birth_date": birth_date, "nik": nik_cleaned, # Gunakan NIK yang sudah divalidasi
                     "blood_group": blood_group or None, "rhesus": rhesus or None,
                     "gender": gender or None,
                     "occupation": occupation or None, "education": education or None,
@@ -1312,6 +1338,9 @@ if tab_pat:
                         get_all_patients_for_selection.clear()
                         # st.query_params["tab"] = "Pasien" # Dihapus
                         st.rerun()
+        # ==============================================================
+        # --- END: BLOK VALIDASI NIK (PERBAIKAN) ---
+        # ==============================================================
 
         st.markdown("---")
         st.markdown("### 📋 Data Pasien Terbaru")
@@ -2016,11 +2045,14 @@ if tab_death:
             cause_of_death = st.text_area("Penyebab Kematian", value=death_data.get('cause_of_death', ''))
             current_year = date.today().year
             year_of_death_val = death_data.get('year_of_death')
+            # Fix: Pastikan value adalah integer yang valid untuk number_input
             if year_of_death_val:
                 try:
                     year_of_death_val = int(year_of_death_val)
-                except ValueError:
+                except (ValueError, TypeError):
                     year_of_death_val = current_year # fallback
+            else:
+                 year_of_death_val = current_year # fallback jika None
 
             year_of_death = st.number_input("Tahun Kematian", min_value=1900, max_value=current_year, value=year_of_death_val, step=1)
             
