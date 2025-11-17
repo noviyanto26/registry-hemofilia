@@ -1,6 +1,7 @@
 import runpy
 import os
 import streamlit as st
+import streamlit.components.v1 as components  # <--- 1. Import Library
 from streamlit_option_menu import option_menu
 from sqlalchemy import create_engine, text, Engine
 from passlib.context import CryptContext
@@ -14,6 +15,24 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# -----------------------------
+# Google Analytics Injection
+# -----------------------------
+def inject_ga():
+    GA_ID = "G-HM8QDXQFEH"
+    ga_code = f"""
+    <script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){{dataLayer.push(arguments);}}
+      gtag('js', new Date());
+      gtag('config', '{GA_ID}');
+    </script>
+    """
+    components.html(ga_code, height=0)
+
+inject_ga()
 
 # -----------------------------
 # KONEKSI DATABASE
