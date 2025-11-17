@@ -1,4 +1,5 @@
 import os
+import io  # MODIFIKASI: Ditambahkan untuk handling export Excel
 import pandas as pd
 import streamlit as st
 import pydeck as pdk
@@ -51,7 +52,7 @@ def load_rekap() -> pd.DataFrame:
     # Asumsi: nilai di kolom 'cabang' adalah nama Propinsi.
     sql = """
         SELECT
-            cabang AS propinsi,      -- Cabang kita anggap sebagai Propinsi
+            cabang AS propinsi,       -- Cabang kita anggap sebagai Propinsi
             COUNT(*) AS jumlah_pasien
         FROM
             pwh.patients
@@ -74,7 +75,6 @@ def load_rekap() -> pd.DataFrame:
     })
     
     # Bersihkan whitespace
-    # MODIFIKASI: Mengganti "Propinsi" menjadi "Cabang HMHI"
     if "Cabang HMHI" in df.columns:
         df["Cabang HMHI"] = df["Cabang HMHI"].astype(str).str.strip()
             
@@ -92,7 +92,6 @@ min_count = st.sidebar.number_input("Filter minimum jumlah pasien", min_value=0,
 # =========================
 def load_propinsi_geo_from_db() -> pd.DataFrame:
     # MODIFIKASI: Mengambil data dari tabel referensi BARU 'public.kota_geo_new'
-    # Hanya mengambil kolom 'propinsi', 'lat', 'lon'
     try:
         q = "SELECT propinsi, lat, lon FROM public.kota_geo_new;"
         df_geo = run_query(q)
@@ -100,21 +99,15 @@ def load_propinsi_geo_from_db() -> pd.DataFrame:
             df_geo["propinsi"] = df_geo["propinsi"].astype(str).str.strip()
         return df_geo
     except Exception as e:
-        # Jika tabel baru belum ada, return dataframe kosong agar tidak crash
-        # st.error(f"Gagal memuat referensi geo: {e}") # Optional debug
         return pd.DataFrame(columns=["propinsi", "lat", "lon"])
 
 def lookup_coord_propinsi(prov_name: str, df_ref: pd.DataFrame) -> Optional[tuple]:
-    # MODIFIKASI: Fungsi lookup yang jauh lebih sederhana.
-    # Hanya mencocokkan nama propinsi.
     p = (prov_name or "").strip().lower()
 
     if not df_ref.empty:
-        # Normalisasi data referensi untuk pencarian
         df_norm = df_ref.copy()
         df_norm["propinsi_norm"] = df_norm["propinsi"].str.lower()
         
-        # Cari yang cocok persis
         hit = df_norm[df_norm["propinsi_norm"] == p]
         if not hit.empty:
             r = hit.iloc[0]
@@ -142,21 +135,17 @@ grouped = df.copy()
 if min_count > 0:
     grouped = grouped[grouped["Jumlah Pasien"] >= min_count].copy()
 
-# Muat referensi geo yang baru
 geo_ref = load_propinsi_geo_from_db()
 
 if geo_ref.empty:
      st.error("⚠️ Tabel referensi `public.kota_geo_new` kosong atau tidak ditemukan. Peta tidak dapat ditampilkan.")
      st.stop()
 
-# Lakukan lookup hanya berdasarkan propinsi
-# MODIFIKASI: Mengganti "Propinsi" menjadi "Cabang HMHI"
 grouped["coord"] = grouped["Cabang HMHI"].apply(lambda p: lookup_coord_propinsi(p, geo_ref))
 
 valid_mask = grouped["coord"].apply(_is_valid_coord)
 grouped_valid = grouped[valid_mask].copy()
 
-# Pisahkan lat/lon dengan aman
 if not grouped_valid.empty:
     latlon = grouped_valid["coord"].apply(pd.Series)
     if latlon.shape[1] >= 2:
@@ -164,16 +153,13 @@ if not grouped_valid.empty:
         latlon.columns = ["lat", "lon"]
         grouped_valid = pd.concat([grouped_valid.drop(columns=["coord"]), latlon], axis=1)
     else:
-        grouped_valid = grouped_valid.iloc[0:0] # Kosongkan jika gagal parsing
+        grouped_valid = grouped_valid.iloc[0:0]
 else:
-    # Siapkan kolom kosong jika tidak ada data valid
     grouped_valid["lat"] = pd.Series(dtype=float)
     grouped_valid["lon"] = pd.Series(dtype=float)
 
-# Finalisasi data untuk peta
 if not grouped_valid.empty:
-    grouped_valid["radius"] = (grouped_valid["Jumlah Pasien"] ** 0.5) * 2500 # Radius sedikit diperbesar untuk propinsi
-    # MODIFIKASI: Mengganti "Propinsi" menjadi "Cabang HMHI"
+    grouped_valid["radius"] = (grouped_valid["Jumlah Pasien"] ** 0.5) * 2500 
     grouped_valid["label"] = grouped_valid.apply(lambda r: f"{r['Cabang HMHI']} : {int(r['Jumlah Pasien'])}", axis=1)
 
 # =========================
@@ -182,12 +168,28 @@ if not grouped_valid.empty:
 st.subheader(f"📋 Rekap Per Cabang HMHI (valid: {len(grouped_valid)}/{len(grouped)})")
 
 # Tampilkan tabel data
-# MODIFIKASI: Mengganti "Propinsi" menjadi "Cabang HMHI"
 display_cols = ["Cabang HMHI", "Jumlah Pasien"]
+df_to_show = pd.DataFrame() # Inisialisasi
+
 if not grouped_valid.empty:
-    st.dataframe(grouped_valid[display_cols + ["lat", "lon"]].sort_values("Jumlah Pasien", ascending=False), use_container_width=True, hide_index=True)
+    # Ambil data bersih untuk ditampilkan
+    df_to_show = grouped_valid[display_cols + ["lat", "lon"]].sort_values("Jumlah Pasien", ascending=False).copy()
+    
+    # MODIFIKASI 1: Menambahkan Baris Total
+    total_pasien = df_to_show["Jumlah Pasien"].sum()
+    # Membuat baris total (lat/lon dikosongkan atau 0 karena ini baris resume)
+    row_total = pd.DataFrame([{
+        "Cabang HMHI": "TOTAL", 
+        "Jumlah Pasien": total_pasien,
+        "lat": None,
+        "lon": None
+    }])
+    # Menggabungkan data asli dengan baris total
+    df_to_show = pd.concat([df_to_show, row_total], ignore_index=True)
+    
+    st.dataframe(df_to_show, use_container_width=True, hide_index=True)
 else:
-    st.dataframe(grouped[display_cols], use_container_width=True, hide_index=True) # Tampilkan data mentah jika tidak ada yg valid
+    st.dataframe(grouped[display_cols], use_container_width=True, hide_index=True)
 
 # Konfigurasi Peta Pydeck
 def_view = pdk.ViewState(latitude=-2.5, longitude=118.0, zoom=4.5, pitch=0)
@@ -222,7 +224,6 @@ text_layer = pdk.Layer(
     get_alignment_baseline="'bottom'"
 )
 
-# MODIFIKASI: Mengganti "Propinsi" menjadi "Cabang HMHI"
 tooltip = {
     "html": "<b>Cabang HMHI: {Cabang HMHI}</b><br/>Jumlah Pasien: {Jumlah Pasien}",
     "style": {"backgroundColor": "white", "color": "black", "zIndex": "999"}
@@ -243,15 +244,30 @@ else:
         tooltip=tooltip
     ))
 
-# Tombol Download
+# MODIFIKASI 2: Tombol Download Excel
 if not grouped_valid.empty:
-    csv_data = grouped_valid.to_csv(index=False).encode("utf-8")
+    # Menggunakan buffer BytesIO untuk menyimpan file Excel di memori
+    buffer = io.BytesIO()
+    
+    # Menulis dataframe ke buffer menggunakan engine openpyxl (default pandas) atau xlsxwriter
+    # Kita download df_to_show agar baris TOTAL ikut terdownload
+    # Hapus kolom lat/lon agar lebih rapi di excel
+    cols_excel = ["Cabang HMHI", "Jumlah Pasien"]
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        # Jika df_to_show ada isinya (sudah ada Total), pakai itu. Jika tidak, pakai grouped_valid.
+        if not df_to_show.empty:
+            df_to_show[cols_excel].to_excel(writer, index=False, sheet_name='Rekap Pasien')
+        else:
+            grouped_valid[cols_excel].to_excel(writer, index=False, sheet_name='Rekap Pasien')
+            
+    # Reset pointer buffer ke awal
+    buffer.seek(0)
+    
     st.download_button(
-        "📥 Download Data (CSV)",
-        data=csv_data,
-        file_name="rekap_pasien_per_propinsi.csv",
-        mime="text/csv"
+        label="📥 Download Data (Excel)",
+        data=buffer,
+        file_name="rekap_pasien_per_cabang.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# MODIFIKASI: Mengganti "Propinsi" menjadi "Cabang HMHI"
 st.caption("Sumber: Agregasi dari tabel **pwh.patients** (kolom `cabang`). Koordinat diambil dari tabel referensi **`public.kota_geo_new`** berdasarkan kesamaan nama Cabang HMHI (Propinsi).")
