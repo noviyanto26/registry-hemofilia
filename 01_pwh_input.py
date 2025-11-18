@@ -22,7 +22,7 @@ def build_excel_bytes() -> bytes:
     p.birth_place,
     p.birth_date,
     p.nik,
-    COALESCE(pa.age_years, EXTRACT(YEAR FROM age(CURRENT_DATE, p.birth_date))) AS age_years,
+    EXTRACT(YEAR FROM age(CURRENT_DATE, p.birth_date)) AS age_years,
     p.blood_group,
     p.rhesus,
     p.gender,
@@ -39,7 +39,6 @@ def build_excel_bytes() -> bytes:
     p.note,
     p.created_at
 FROM pwh.patients p
-LEFT JOIN pwh.patient_age pa ON pa.id = p.id
 ORDER BY p.id
 
     """)
