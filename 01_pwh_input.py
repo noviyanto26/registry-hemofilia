@@ -40,8 +40,19 @@ def build_excel_bytes() -> bytes:
     p.created_at
 FROM pwh.patients p
 ORDER BY p.id
-
     """)
+    # ============================================================
+    # TAMBAHKAN KODE INI DI BAWAH QUERY df_patients
+    # ============================================================
+    
+    # 1. Reset index agar urut dari 0
+    df_patients.reset_index(drop=True, inplace=True)
+    
+    # 2. Tambahkan kolom "No" di posisi paling kiri (indeks 0)
+    # Isinya adalah angka 1 sampai jumlah total data
+    df_patients.insert(0, 'No', range(1, 1 + len(df_patients)))
+
+    # ============================================================
     df_diag = run_df_branch("""
         SELECT d.id, d.patient_id, p.full_name, d.hemo_type, d.severity, d.diagnosed_on, d.source
         FROM pwh.hemo_diagnoses d JOIN pwh.patients p ON p.id = d.patient_id
