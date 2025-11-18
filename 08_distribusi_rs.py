@@ -7,7 +7,7 @@ from typing import Callable, Optional
 from sqlalchemy import create_engine, text
 
 # =========================
-# KONFIGURASI HALAMAN
+# 1. KONFIGURASI HALAMAN
 # =========================
 st.set_page_config(
     page_title="Peta Jumlah Pasien per Kota",
@@ -17,9 +17,14 @@ st.set_page_config(
 st.title("🗺️ Peta Jumlah Pasien per Kota (Hemofilia)")
 
 # =========================
-# UTIL KONEKSI (dual-mode)
+# 2. UTIL KONEKSI DATABASE
 # =========================
 def _build_query_runner() -> Callable[[str], pd.DataFrame]:
+    """
+    Membangun fungsi query yang kompatibel dengan st.connection (lokal)
+    atau sqlalchemy engine (jika st.connection belum dikonfigurasi).
+    """
+    # Cara 1: Coba pakai st.connection (Streamlit native)
     try:
         conn = st.connection("postgresql", type="sql")
         def _run_query_streamlit(sql: str) -> pd.DataFrame:
@@ -29,26 +34,29 @@ def _build_query_runner() -> Callable[[str], pd.DataFrame]:
     except Exception:
         pass
 
+    # Cara 2: Fallback ke SQLAlchemy engine manual (baca dari secrets/env)
     db_url = st.secrets.get("DATABASE_URL", os.getenv("DATABASE_URL", ""))
     if not db_url:
         st.error("❌ Koneksi DB tidak dikonfigurasi. Set 'connections.postgresql' di secrets.toml atau 'DATABASE_URL' di secrets.")
         st.stop()
+    
     engine = create_engine(db_url, pool_pre_ping=True)
 
     def _run_query_engine(sql: str) -> pd.DataFrame:
         with engine.connect() as con:
             return pd.read_sql(text(sql), con)
-    _ = _run_query_engine("SELECT 1 as ok;")
+    
     return _run_query_engine
 
 run_query = _build_query_runner()
 
 # =========================
-# DATA REKAP
+# 3. LOAD DATA PASIEN
 # =========================
 def load_rekap() -> pd.DataFrame:
+    """Mengambil data rekap pasien dari view pwh.v_hospital_summary"""
     sql = """
-        SELECT
+        SELECT 
             "Nama Rumah Sakit",
             "Jumlah Pasien",
             "Kota",
@@ -57,13 +65,14 @@ def load_rekap() -> pd.DataFrame:
         ORDER BY "Jumlah Pasien" DESC, "Nama Rumah Sakit" ASC;
     """
     df = run_query(sql)
+    # Bersihkan whitespace
     for c in ["Kota", "Propinsi"]:
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip()
     return df
 
 # =========================
-# SUMBER KOORDINAT LOKAL (Fallback statis)
+# 4. CONFIG & UTIL GEOCODING (PERBAIKAN UTAMA)
 # =========================
 STATIC_CITY_COORDS = {
     ("jakarta", "dki jakarta"): (-6.1754, 106.8272),
@@ -76,36 +85,60 @@ STATIC_CITY_COORDS = {
     ("surabaya", "jawa timur"): (-7.2575, 112.7521),
 }
 
-# =========================
-# OPSI GEOCODING
-# =========================
 st.sidebar.header("⚙️ Opsi Geocoding & Tampilan")
 use_online_geocoding = st.sidebar.toggle(
     "Aktifkan geocoding online (Nominatim/OSM)", value=False,
-    help="Jika dinyalakan, kota yang tidak ditemukan di referensi lokal akan dicari via OSM (butuh internet)."
+    help="Jika dinyalakan, kota yang tidak ditemukan di referensi lokal akan dicari via OSM (butuh internet & agak lambat)."
 )
 heatmap_radius = st.sidebar.slider("Radius Heatmap", min_value=10, max_value=80, value=40, step=5)
 min_count = st.sidebar.number_input("Filter minimum jumlah pasien per kota", min_value=0, value=0, step=1)
 
-# =========================
-# UTIL GEOCODING
-# =========================
 def load_kota_geo_from_db() -> pd.DataFrame:
+    """Mengambil referensi koordinat dari tabel public.kota_geo"""
     try:
         q = "SELECT kota, propinsi, lat, lon FROM public.kota_geo;"
         df_geo = run_query(q)
         for c in ["kota", "propinsi"]:
-            df_geo[c] = df_geo[c].astype(str).str.strip()
+            df_geo[c] = df_geo[c].astype(str)
         return df_geo
-    except Exception:
+    except Exception as e:
+        st.warning(f"Gagal membaca tabel public.kota_geo: {e}")
         return pd.DataFrame(columns=["kota", "propinsi", "lat", "lon"])
 
+def normalize_name(name: str) -> str:
+    """
+    Membersihkan nama kota agar 'Kab. Aceh' cocok dengan 'Kabupaten Aceh'.
+    Menghapus prefiks: Kota, Kabupaten, Kab., Adm.
+    """
+    if not isinstance(name, str): return ""
+    name = name.lower().strip()
+    
+    # Daftar prefix yang akan dibuang
+    prefixes = ["kota administrasi ", "kota ", "kabupaten ", "kab. ", "kab "]
+    
+    for prefix in prefixes:
+        if name.startswith(prefix):
+            name = name.replace(prefix, "", 1)
+            break # Hanya hapus satu prefix di depan
+            
+    return name.strip()
+
+def create_geo_lookup(df_geo: pd.DataFrame) -> dict:
+    """Membuat Dictionary Lookup Key=(kota_norm, prov_norm) -> Value=(lat, lon)"""
+    lookup = {}
+    for _, row in df_geo.iterrows():
+        c_norm = normalize_name(row["kota"])
+        p_norm = normalize_name(row["propinsi"])
+        lookup[(c_norm, p_norm)] = (float(row["lat"]), float(row["lon"]))
+    return lookup
+
 def nominatim_geocode(city: str, province: str) -> Optional[tuple]:
+    """Fallback ke API OpenStreetMap jika data lokal tidak ada"""
     base = "https://nominatim.openstreetmap.org/search"
     params = {"q": f"{city}, {province}, Indonesia", "format": "json", "limit": 1}
-    headers = {"User-Agent": "hemofilia-geo/1.0"}
+    headers = {"User-Agent": "hemofilia-geo-app/1.0"}
     try:
-        r = requests.get(base, params=params, headers=headers, timeout=10)
+        r = requests.get(base, params=params, headers=headers, timeout=5)
         r.raise_for_status()
         j = r.json()
         if isinstance(j, list) and j:
@@ -114,109 +147,172 @@ def nominatim_geocode(city: str, province: str) -> Optional[tuple]:
         pass
     return None
 
-def lookup_coord(city: str, province: str, df_ref: pd.DataFrame) -> Optional[tuple]:
-    c = (city or "").strip().lower()
-    if c.startswith("kota "):
-        c = c.replace("kota ", "", 1)
-    p = (province or "").strip().lower()
-
-    df_norm = df_ref.copy()
-    if not df_norm.empty:
-        df_norm["kota"] = df_norm["kota"].str.lower().str.replace("^kota\\s+", "", regex=True)
-        df_norm["propinsi"] = df_norm["propinsi"].str.lower()
-        hit = df_norm[(df_norm["kota"] == c) & (df_norm["propinsi"] == p)]
-        if not hit.empty:
-            r = hit.iloc[0]
-            return float(r["lat"]), float(r["lon"])
-
-    if (c, p) in STATIC_CITY_COORDS:
-        return STATIC_CITY_COORDS[(c, p)]
-
-    if use_online_geocoding:
-        return nominatim_geocode(city, province)
-
+def get_coordinates(city_raw: str, prov_raw: str, lookup_dict: dict) -> Optional[tuple]:
+    """Logika utama pencarian koordinat"""
+    c_norm = normalize_name(city_raw)
+    p_norm = normalize_name(prov_raw)
+    
+    # 1. Cek Lookup DB (Normalized)
+    if (c_norm, p_norm) in lookup_dict:
+        return lookup_dict[(c_norm, p_norm)]
+    
+    # 2. Cek Static Hardcoded
+    if (c_norm, p_norm) in STATIC_CITY_COORDS:
+        return STATIC_CITY_COORDS[(c_norm, p_norm)]
+    
+    # 3. (Opsional) Cek jika Provinsi typo (misal Jakarta vs DKI Jakarta)
+    # Hati-hati, ini bisa false positive jika ada nama kota sama di provinsi beda
+    # Namun untuk kasus Indonesia, nama kota/kabupaten relatif unik
+    for (k_city, k_prov), val in lookup_dict.items():
+        if k_city == c_norm:
+            return val
+            
     return None
 
-def _is_valid_coord(v) -> bool:
-    return (
-        isinstance(v, (list, tuple))
-        and len(v) == 2
-        and pd.notna(v[0])
-        and pd.notna(v[1])
-    )
+# =========================
+# 5. LOGIKA UTAMA (MAIN PROCESS)
+# =========================
 
-# =========================
-# PROSES DATA & PETA
-# =========================
-df = load_rekap()
-if df.empty:
-    st.warning("Data rekap tidak ditemukan. Pastikan view pwh.v_hospital_summary tersedia.")
+# A. Load Data Transaksi
+df_pasien = load_rekap()
+if df_pasien.empty:
+    st.warning("Data rekap pasien kosong atau tabel tidak ditemukan.")
     st.stop()
 
-# Agregasi data: Jumlahkan pasien DAN kumpulkan nama RS per kota
-grouped = df.groupby(["Kota", "Propinsi"], dropna=False).agg(
-    **{"Jumlah Pasien": ("Jumlah Pasien", "sum"),
-       "Rumah Sakit Penangan": ("Nama Rumah Sakit", lambda s: ", ".join(s.unique()))}
+# B. Agregasi Data (Group By Kota & Propinsi)
+grouped = df_pasien.groupby(["Kota", "Propinsi"], dropna=False).agg(
+    # Gunakan dictionary unpacking untuk nama kolom dinamis/spasi
+    **{
+        "Jumlah Pasien": ("Jumlah Pasien", "sum"),
+        "Rumah Sakit Penangan": ("Nama Rumah Sakit", lambda s: ", ".join(s.unique()))
+    }
 ).reset_index()
 
+# Filter Jumlah Minimum
 if min_count > 0:
     grouped = grouped[grouped["Jumlah Pasien"] >= min_count].copy()
 
-geo_ref = load_kota_geo_from_db()
-grouped["coord"] = grouped.apply(lambda r: lookup_coord(r["Kota"], r["Propinsi"], geo_ref), axis=1)
+# C. Load Data Geo & Buat Lookup
+df_geo_ref = load_kota_geo_from_db()
+geo_lookup_dict = create_geo_lookup(df_geo_ref)
 
-valid_mask = grouped["coord"].apply(_is_valid_coord)
-grouped_valid = grouped[valid_mask].copy()
-latlon = grouped_valid["coord"].apply(pd.Series)
-latlon.columns = ["lat", "lon"]
-grouped_valid = pd.concat([grouped_valid.drop(columns=["coord"]), latlon], axis=1)
-grouped_valid = grouped_valid.dropna(subset=["lat", "lon"])
+# D. Proses Mapping Koordinat
+def apply_mapping(row):
+    city = row["Kota"]
+    prov = row["Propinsi"]
+    
+    # Cek Lokal
+    coords = get_coordinates(city, prov, geo_lookup_dict)
+    
+    if coords:
+        return pd.Series([coords[0], coords[1], True])
+    
+    # Cek Online (Jika user mengaktifkan)
+    if use_online_geocoding:
+        online_coords = nominatim_geocode(city, prov)
+        if online_coords:
+             return pd.Series([online_coords[0], online_coords[1], True])
+    
+    return pd.Series([None, None, False])
 
+# Terapkan function ke dataframe
+grouped[["lat", "lon", "found"]] = grouped.apply(apply_mapping, axis=1)
+
+# E. Pisahkan Valid dan Invalid
+grouped_valid = grouped[grouped["found"] == True].copy()
+grouped_missing = grouped[grouped["found"] == False].copy()
+
+# =========================
+# 6. VISUALISASI
+# =========================
+
+# Tampilkan Debugging jika ada data yang hilang
+if not grouped_missing.empty:
+    with st.expander(f"⚠️ Ada {len(grouped_missing)} Kota Tanpa Koordinat (Klik untuk Detail)", expanded=False):
+        st.warning("Kota berikut ada di data pasien tapi tidak ditemukan di `public.kota_geo`. Silakan insert manual atau aktifkan geocoding online.")
+        st.dataframe(grouped_missing[["Kota", "Propinsi", "Jumlah Pasien"]])
+
+# Tabel Data Valid
+st.subheader(f"📋 Data Terpetakan ({len(grouped_valid)} Kota)")
 if not grouped_valid.empty:
+    # Tambahkan kolom radius dan label untuk visualisasi
     grouped_valid["radius"] = (grouped_valid["Jumlah Pasien"] ** 0.5) * 2000
     grouped_valid["label"] = grouped_valid.apply(lambda r: f"{r['Kota']} : {int(r['Jumlah Pasien'])}", axis=1)
+    
+    st.dataframe(
+        grouped_valid[["Kota", "Propinsi", "Jumlah Pasien", "Rumah Sakit Penangan", "lat", "lon"]].sort_values("Jumlah Pasien", ascending=False),
+        use_container_width=True,
+        hide_index=True
+    )
+else:
+    st.info("Belum ada data yang terpetakan.")
 
-st.subheader(f"📋 Rekap Per Kota (koordinat valid: {len(grouped_valid)}/{len(grouped)})")
-st.dataframe(grouped_valid[["Rumah Sakit Penangan", "Kota", "Propinsi", "Jumlah Pasien", "lat", "lon"]].sort_values("Jumlah Pasien", ascending=False), use_container_width=True, hide_index=True)
-
-def_view = pdk.ViewState(latitude=-2.5, longitude=118.0, zoom=4.2, pitch=0)
-heatmap_layer = pdk.Layer("HeatmapLayer", data=grouped_valid, get_position='[lon, lat]', get_weight="Jumlah Pasien", radius_pixels=int(heatmap_radius))
-scatter_layer = pdk.Layer(
-    "ScatterplotLayer",
-    data=grouped_valid,
-    get_position='[lon, lat]',
-    get_radius='radius',
-    get_fill_color='[255, 0, 0, 160]',
-    pickable=True,
-    auto_highlight=True
-)
-text_layer = pdk.Layer(
-    "TextLayer",
-    data=grouped_valid,
-    get_position='[lon, lat]',
-    get_text="label",
-    get_size=16,
-    get_color=[0, 0, 0],
-    get_angle=0,
-    billboard=True
-)
-
-tooltip = {"html": "<b>{Kota}, {Propinsi}</b><br/>Jumlah Pasien: {Jumlah Pasien}", "style": {"backgroundColor": "white", "color": "black"}}
-
+# Peta Pydeck
 def get_map_style():
     token = st.secrets.get("MAPBOX_TOKEN", os.getenv("MAPBOX_TOKEN"))
     if token:
         pdk.settings.mapbox_api_key = token
         return "mapbox://styles/mapbox/light-v9"
-    return None
+    return None # Default ke Carto/OSM style jika token kosong
 
 st.subheader("🗺️ Peta Persebaran")
-if grouped_valid.empty:
-    st.info("Belum ada koordinat kota yang valid. Pastikan tabel public.kota_geo terisi atau aktifkan geocoding online.")
-else:
-    st.pydeck_chart(pdk.Deck(map_style=get_map_style(), initial_view_state=def_view, layers=[heatmap_layer, scatter_layer, text_layer], tooltip=tooltip))
-
 if not grouped_valid.empty:
-    st.download_button("📥 Download Data Per Kota (CSV)", data=grouped_valid[["Rumah Sakit Penangan", "Kota", "Propinsi", "Jumlah Pasien", "lat", "lon"]].to_csv(index=False).encode("utf-8"), file_name="rekap_pasien_per_kota.csv", mime="text/csv")
+    # View State Awal (Indonesia Tengah)
+    view_state = pdk.ViewState(latitude=-2.5, longitude=118.0, zoom=4.2, pitch=0)
 
-st.caption("Sumber: view **pwh.v_hospital_summary**. Koordinat diambil dari tabel lokal `public.kota_geo` (jika ada), fallback kamus statis, dan *opsional* geocoding online Nominatim/OSM. Jika tidak ada MAPBOX_TOKEN, otomatis memakai OSM default. Label jumlah pasien ditampilkan di titik kota.")
+    # Layer 1: Heatmap
+    heatmap_layer = pdk.Layer(
+        "HeatmapLayer",
+        data=grouped_valid,
+        get_position='[lon, lat]',
+        get_weight="[Jumlah Pasien]", # Mengacu ke kolom DataFrame
+        radius_pixels=int(heatmap_radius)
+    )
+
+    # Layer 2: Scatterplot (Titik Merah)
+    scatter_layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=grouped_valid,
+        get_position='[lon, lat]',
+        get_radius="radius",
+        get_fill_color='[255, 0, 0, 160]',
+        pickable=True,
+        auto_highlight=True
+    )
+
+    # Layer 3: Text Label
+    text_layer = pdk.Layer(
+        "TextLayer",
+        data=grouped_valid,
+        get_position='[lon, lat]',
+        get_text="label",
+        get_size=14,
+        get_color=[0, 0, 0],
+        get_alignment_baseline="'bottom'",
+        billboard=True
+    )
+    
+    tooltip = {
+        "html": "<b>{Kota}, {Propinsi}</b><br/>Jumlah Pasien: {Jumlah Pasien}<br/><i>{Rumah Sakit Penangan}</i>",
+        "style": {"backgroundColor": "white", "color": "black"}
+    }
+
+    deck = pdk.Deck(
+        map_style=get_map_style(),
+        initial_view_state=view_state,
+        layers=[heatmap_layer, scatter_layer, text_layer],
+        tooltip=tooltip
+    )
+    
+    st.pydeck_chart(deck)
+
+    # Tombol Download
+    csv_data = grouped_valid[["Kota", "Propinsi", "Jumlah Pasien", "Rumah Sakit Penangan", "lat", "lon"]].to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="📥 Download Data CSV",
+        data=csv_data,
+        file_name="rekap_sebaran_hemofilia.csv",
+        mime="text/csv"
+    )
+else:
+    st.write("Tidak ada data valid untuk ditampilkan di peta.")
