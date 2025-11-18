@@ -1404,8 +1404,7 @@ if tab_pat:
         p.created_at
     FROM pwh.patients p
     LEFT JOIN pwh.patient_age pa ON pa.id = p.id
-    ORDER BY p.id DESC
-    LIMIT 200;
+    ORDER BY p.id DESC;
 
     """)
         
