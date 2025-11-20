@@ -85,17 +85,12 @@ ORDER BY p.id
         ORDER BY c.patient_id, c.id
     """)
     
-    # --- PERUBAHAN DI SINI: Query summary dimodifikasi untuk mengambil Cabang, Kematian, & Nama RS ---
+    # --- PERUBAHAN DI SINI: Query summary dimodifikasi untuk mengambil Cabang & Kematian ---
     df_summary = run_df_branch("""
-        SELECT s.*, p.cabang, d.cause_of_death, th.name_hospital
+        SELECT s.*, p.cabang, d.cause_of_death 
         FROM pwh.patient_summary s
         JOIN pwh.patients p ON s.id = p.id
         LEFT JOIN pwh.death d ON s.id = d.patient_id
-        LEFT JOIN (
-            SELECT DISTINCT ON (patient_id) patient_id, name_hospital
-            FROM pwh.treatment_hospital
-            ORDER BY patient_id, date_of_visit DESC, id DESC
-        ) th ON s.id = th.patient_id
         ORDER BY s.id
     """)
     
@@ -121,36 +116,25 @@ ORDER BY p.id
                 pass # Lanjut jika kolom kosong/NaT
     # --- END FIX ---
 
-    # --- TAMBAHAN LOGIKA SUMMARY ---
+    # --- TAMBAHAN LOGIKA SUMMARY (NOMOR, CABANG, KEMATIAN) ---
     # 1. Tambah Nomor Urut di paling depan
     df_summary.reset_index(drop=True, inplace=True)
     df_summary.insert(0, 'No', range(1, 1 + len(df_summary)))
 
-    # Ambil daftar kolom saat ini
-    cols = df_summary.columns.tolist()
-
     # 2. Pindah posisi kolom 'cabang' agar sesudah 'id'
+    # Asumsi: 'cause_of_death' sudah ada di posisi akhir karena ditaruh di akhir SELECT
+    cols = df_summary.columns.tolist()
     if 'id' in cols and 'cabang' in cols:
         cols.remove('cabang')
         idx_id = cols.index('id')
         cols.insert(idx_id + 1, 'cabang')
-
-    # 3. Pindah posisi kolom 'name_hospital' agar sesudah 'Pekerjaan'
-    # Pastikan nama kolom 'Pekerjaan' sesuai dengan yang ada di DB View/Query
-    if 'Pekerjaan' in cols and 'name_hospital' in cols:
-        cols.remove('name_hospital')
-        idx_job = cols.index('Pekerjaan')
-        cols.insert(idx_job + 1, 'name_hospital')
+        df_summary = df_summary[cols]
     
-    # Terapkan urutan kolom baru
-    df_summary = df_summary[cols]
-    
-    # 4. Update Alias Map untuk kolom-kolom baru (hanya lokal di fungsi ini)
+    # 3. Update Alias Map untuk kolom baru (hanya lokal di fungsi ini)
     alias_summary_updated = ALIAS_SUMMARY.copy()
     alias_summary_updated.update({
         "cabang": "HMHI Cabang",
-        "cause_of_death": "Penyebab Kematian",
-        "name_hospital": "Nama RS"
+        "cause_of_death": "Penyebab Kematian"
     })
     # ---------------------------------------------------------
 
@@ -1512,6 +1496,7 @@ if tab_diag:
             if st.button("❌ Batal Edit", key="cancel_diag_edit"):
                 clear_session_state('diag_to_edit')
                 clear_session_state('diag_matches')
+                # st.query_params["tab"] = "Diagnosis" # Dihapus
                 st.rerun()
 
         # Tentukan pilihan default jika dalam mode edit
@@ -1543,21 +1528,13 @@ if tab_diag:
                 payload = {"hemo_type": hemo_type, "severity": severity, "diagnosed_on": diagnosed_on, "source": (source or "").strip() or None}
                 update_diagnosis(diag_data['id'], payload)
                 st.success("Diagnosis diperbarui.")
-                
-                # --- PERBAIKAN DISINI: Clear cache pencarian agar data refresh ---
                 clear_session_state('diag_to_edit')
-                clear_session_state('diag_matches') 
-                # ----------------------------------------------------------------
-                
+                # st.query_params["tab"] = "Diagnosis" # Dihapus
                 st.rerun()
             elif pid_diag:
                 insert_diagnosis(int(pid_diag), hemo_type, severity, diagnosed_on, source)
                 st.success("Diagnosis disimpan/diperbarui.")
-                
-                # --- PERBAIKAN DISINI: Clear cache pencarian juga saat insert baru ---
-                clear_session_state('diag_matches')
-                # ----------------------------------------------------------------
-                
+                # st.query_params["tab"] = "Diagnosis" # Dihapus
                 st.rerun()
             else:
                 if not diag_data: st.warning("Silakan pilih pasien terlebih dahulu.")
@@ -1580,11 +1557,19 @@ if tab_diag:
                 """
                 results_df = run_df_branch(q, {"name": f"%{search_name_diag}%"})
 
+                # ==============================================================
+                # --- START PERUBAHAN LOGIKA DI SINI ---
+                # ==============================================================
                 if results_df.empty:
                     st.warning("Riwayat diagnosis tidak ditemukan untuk pasien dengan nama tersebut (di cabang Anda).")
                 else:
+                    # SELALU tampilkan selectbox jika 1 ATAU LEBIH data ditemukan
                     st.info(f"Ditemukan {len(results_df)} riwayat diagnosis. Silakan pilih satu untuk diedit/dihapus.")
                     st.session_state.diag_matches = results_df
+                    # JANGAN st.rerun() di sini
+                # ==============================================================
+                # --- END PERUBAHAN LOGIKA ---
+                # ==============================================================
                     
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
