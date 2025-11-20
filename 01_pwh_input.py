@@ -85,12 +85,17 @@ ORDER BY p.id
         ORDER BY c.patient_id, c.id
     """)
     
-    # --- PERUBAHAN DI SINI: Query summary dimodifikasi untuk mengambil Cabang & Kematian ---
+    # --- PERUBAHAN DI SINI: Query summary dimodifikasi untuk mengambil Cabang, Kematian, & Nama RS ---
     df_summary = run_df_branch("""
-        SELECT s.*, p.cabang, d.cause_of_death 
+        SELECT s.*, p.cabang, d.cause_of_death, th.name_hospital
         FROM pwh.patient_summary s
         JOIN pwh.patients p ON s.id = p.id
         LEFT JOIN pwh.death d ON s.id = d.patient_id
+        LEFT JOIN (
+            SELECT DISTINCT ON (patient_id) patient_id, name_hospital
+            FROM pwh.treatment_hospital
+            ORDER BY patient_id, date_of_visit DESC, id DESC
+        ) th ON s.id = th.patient_id
         ORDER BY s.id
     """)
     
@@ -116,25 +121,36 @@ ORDER BY p.id
                 pass # Lanjut jika kolom kosong/NaT
     # --- END FIX ---
 
-    # --- TAMBAHAN LOGIKA SUMMARY (NOMOR, CABANG, KEMATIAN) ---
+    # --- TAMBAHAN LOGIKA SUMMARY ---
     # 1. Tambah Nomor Urut di paling depan
     df_summary.reset_index(drop=True, inplace=True)
     df_summary.insert(0, 'No', range(1, 1 + len(df_summary)))
 
-    # 2. Pindah posisi kolom 'cabang' agar sesudah 'id'
-    # Asumsi: 'cause_of_death' sudah ada di posisi akhir karena ditaruh di akhir SELECT
+    # Ambil daftar kolom saat ini
     cols = df_summary.columns.tolist()
+
+    # 2. Pindah posisi kolom 'cabang' agar sesudah 'id'
     if 'id' in cols and 'cabang' in cols:
         cols.remove('cabang')
         idx_id = cols.index('id')
         cols.insert(idx_id + 1, 'cabang')
-        df_summary = df_summary[cols]
+
+    # 3. Pindah posisi kolom 'name_hospital' agar sesudah 'Pekerjaan'
+    # Pastikan nama kolom 'Pekerjaan' sesuai dengan yang ada di DB View/Query
+    if 'Pekerjaan' in cols and 'name_hospital' in cols:
+        cols.remove('name_hospital')
+        idx_job = cols.index('Pekerjaan')
+        cols.insert(idx_job + 1, 'name_hospital')
     
-    # 3. Update Alias Map untuk kolom baru (hanya lokal di fungsi ini)
+    # Terapkan urutan kolom baru
+    df_summary = df_summary[cols]
+    
+    # 4. Update Alias Map untuk kolom-kolom baru (hanya lokal di fungsi ini)
     alias_summary_updated = ALIAS_SUMMARY.copy()
     alias_summary_updated.update({
         "cabang": "HMHI Cabang",
-        "cause_of_death": "Penyebab Kematian"
+        "cause_of_death": "Penyebab Kematian",
+        "name_hospital": "Nama RS"
     })
     # ---------------------------------------------------------
 
