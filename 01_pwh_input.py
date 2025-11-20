@@ -85,10 +85,12 @@ ORDER BY p.id
         ORDER BY c.patient_id, c.id
     """)
     
-    # --- PERUBAHAN DI SINI: Query summary di-JOIN ke patients agar bisa difilter ---
+    # --- PERUBAHAN DI SINI: Query summary dimodifikasi untuk mengambil Cabang & Kematian ---
     df_summary = run_df_branch("""
-        SELECT s.* FROM pwh.patient_summary s
+        SELECT s.*, p.cabang, d.cause_of_death 
+        FROM pwh.patient_summary s
         JOIN pwh.patients p ON s.id = p.id
+        LEFT JOIN pwh.death d ON s.id = d.patient_id
         ORDER BY s.id
     """)
     
@@ -114,6 +116,27 @@ ORDER BY p.id
                 pass # Lanjut jika kolom kosong/NaT
     # --- END FIX ---
 
+    # --- TAMBAHAN LOGIKA SUMMARY (NOMOR, CABANG, KEMATIAN) ---
+    # 1. Tambah Nomor Urut di paling depan
+    df_summary.reset_index(drop=True, inplace=True)
+    df_summary.insert(0, 'No', range(1, 1 + len(df_summary)))
+
+    # 2. Pindah posisi kolom 'cabang' agar sesudah 'id'
+    # Asumsi: 'cause_of_death' sudah ada di posisi akhir karena ditaruh di akhir SELECT
+    cols = df_summary.columns.tolist()
+    if 'id' in cols and 'cabang' in cols:
+        cols.remove('cabang')
+        idx_id = cols.index('id')
+        cols.insert(idx_id + 1, 'cabang')
+        df_summary = df_summary[cols]
+    
+    # 3. Update Alias Map untuk kolom baru (hanya lokal di fungsi ini)
+    alias_summary_updated = ALIAS_SUMMARY.copy()
+    alias_summary_updated.update({
+        "cabang": "HMHI Cabang",
+        "cause_of_death": "Penyebab Kematian"
+    })
+    # ---------------------------------------------------------
 
     # Alias sheet agar ramah dilihat
     a_patients  = _alias_df(df_patients, ALIAS_PATIENTS)
@@ -123,7 +146,8 @@ ORDER BY p.id
     a_hospital  = _alias_df(df_hospital, ALIAS_HOSPITAL)
     a_death     = _alias_df(df_death, ALIAS_DEATH)
     a_contacts  = _alias_df(df_contacts, ALIAS_CONTACTS)
-    a_summary   = _alias_df(df_summary, ALIAS_SUMMARY)
+    # Gunakan alias map yang sudah diupdate
+    a_summary   = _alias_df(df_summary, alias_summary_updated)
 
     output = io.BytesIO()
     with ExcelWriter(output, engine="xlsxwriter", datetime_format="yyyy-mm-dd", date_format="yyyy-mm-dd") as writer:
