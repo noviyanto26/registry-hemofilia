@@ -1512,7 +1512,6 @@ if tab_diag:
             if st.button("❌ Batal Edit", key="cancel_diag_edit"):
                 clear_session_state('diag_to_edit')
                 clear_session_state('diag_matches')
-                # st.query_params["tab"] = "Diagnosis" # Dihapus
                 st.rerun()
 
         # Tentukan pilihan default jika dalam mode edit
@@ -1544,13 +1543,21 @@ if tab_diag:
                 payload = {"hemo_type": hemo_type, "severity": severity, "diagnosed_on": diagnosed_on, "source": (source or "").strip() or None}
                 update_diagnosis(diag_data['id'], payload)
                 st.success("Diagnosis diperbarui.")
+                
+                # --- PERBAIKAN DISINI: Clear cache pencarian agar data refresh ---
                 clear_session_state('diag_to_edit')
-                # st.query_params["tab"] = "Diagnosis" # Dihapus
+                clear_session_state('diag_matches') 
+                # ----------------------------------------------------------------
+                
                 st.rerun()
             elif pid_diag:
                 insert_diagnosis(int(pid_diag), hemo_type, severity, diagnosed_on, source)
                 st.success("Diagnosis disimpan/diperbarui.")
-                # st.query_params["tab"] = "Diagnosis" # Dihapus
+                
+                # --- PERBAIKAN DISINI: Clear cache pencarian juga saat insert baru ---
+                clear_session_state('diag_matches')
+                # ----------------------------------------------------------------
+                
                 st.rerun()
             else:
                 if not diag_data: st.warning("Silakan pilih pasien terlebih dahulu.")
@@ -1573,19 +1580,11 @@ if tab_diag:
                 """
                 results_df = run_df_branch(q, {"name": f"%{search_name_diag}%"})
 
-                # ==============================================================
-                # --- START PERUBAHAN LOGIKA DI SINI ---
-                # ==============================================================
                 if results_df.empty:
                     st.warning("Riwayat diagnosis tidak ditemukan untuk pasien dengan nama tersebut (di cabang Anda).")
                 else:
-                    # SELALU tampilkan selectbox jika 1 ATAU LEBIH data ditemukan
                     st.info(f"Ditemukan {len(results_df)} riwayat diagnosis. Silakan pilih satu untuk diedit/dihapus.")
                     st.session_state.diag_matches = results_df
-                    # JANGAN st.rerun() di sini
-                # ==============================================================
-                # --- END PERUBAHAN LOGIKA ---
-                # ==============================================================
                     
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
