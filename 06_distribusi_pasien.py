@@ -59,12 +59,12 @@ def _build_query_runner() -> Callable[[str], pd.DataFrame]:
 run_query = _build_query_runner()
 
 # =========================
-# DATA REKAP (PERBAIKAN QUERY)
+# DATA REKAP
 # =========================
 def load_rekap() -> pd.DataFrame:
     """
     Mengambil jumlah pasien per cabang.
-    PERBAIKAN: Menghitung data NULL/Kosong sebagai 'Tanpa Cabang' agar total akurat.
+    Menghitung data NULL/Kosong sebagai 'Tanpa Cabang'.
     """
     sql = """
         SELECT
@@ -72,7 +72,6 @@ def load_rekap() -> pd.DataFrame:
             COUNT(*) AS jumlah_pasien
         FROM
             pwh.patients
-        -- WHERE cabang IS NOT NULL  <-- DIHAPUS agar data NULL tetap masuk hitungan
         GROUP BY
             1
         ORDER BY
@@ -85,7 +84,6 @@ def load_rekap() -> pd.DataFrame:
         "jumlah_pasien": "Jumlah Pasien"
     })
     
-    # Bersihkan whitespace dan pastikan string
     if "Cabang HMHI" in df.columns:
         df["Cabang HMHI"] = df["Cabang HMHI"].astype(str).str.strip()
             
@@ -103,7 +101,6 @@ def load_propinsi_geo_from_db() -> pd.DataFrame:
             df_geo["propinsi"] = df_geo["propinsi"].astype(str).str.strip()
         return df_geo
     except Exception as e:
-        # Return dataframe kosong jika tabel belum ada, agar program tidak crash
         return pd.DataFrame(columns=["propinsi", "lat", "lon"])
 
 def lookup_coord_propinsi(prov_name: str, df_ref: pd.DataFrame) -> Optional[tuple]:
@@ -114,8 +111,6 @@ def lookup_coord_propinsi(prov_name: str, df_ref: pd.DataFrame) -> Optional[tupl
     p = prov_name.strip().lower()
 
     if not df_ref.empty:
-        # Buat kolom temporary untuk pencarian lowercase agar lebih akurat
-        # Kita lakukan copy agar tidak merubah dataframe asli berulang kali
         df_norm = df_ref.copy()
         df_norm["propinsi_norm"] = df_norm["propinsi"].str.lower()
         
@@ -141,7 +136,7 @@ if df.empty:
     st.warning("Data pasien tidak ditemukan di database.")
     st.stop()
 
-# 1. Filter berdasarkan Min Count (berlaku untuk Tabel & Peta)
+# 1. Filter Min Count
 grouped = df.copy()
 if min_count > 0:
     grouped = grouped[grouped["Jumlah Pasien"] >= min_count].copy()
@@ -149,15 +144,15 @@ if min_count > 0:
 # 2. Load Referensi Geografis
 geo_ref = load_propinsi_geo_from_db()
 
-# 3. Lookup Koordinat (Ini dilakukan ke SEMUA data)
+# 3. Lookup Koordinat (Ke semua data)
 grouped["coord"] = grouped["Cabang HMHI"].apply(lambda p: lookup_coord_propinsi(p, geo_ref))
 
-# 4. Pisahkan Lat/Lon menjadi kolom terpisah
+# 4. Pisahkan Lat/Lon
 latlon = grouped["coord"].apply(pd.Series)
 if latlon.shape[1] >= 2:
     latlon = latlon.iloc[:, :2]
     latlon.columns = ["lat", "lon"]
-    # Gabungkan kembali ke grouped, tapi JANGAN drop baris yang lat/lon nya NaN dulu
+    # Gabung lat/lon ke grouped
     grouped = pd.concat([grouped.drop(columns=["coord"]), latlon], axis=1)
 else:
     grouped["lat"] = None
@@ -167,15 +162,14 @@ else:
 # PEMISAHAN DATA: TABEL vs PETA
 # =========================
 
-# A. Data Tabel: Menggunakan 'grouped' APA ADANYA (termasuk yang tidak punya koordinat)
-#    Ini kunci agar jumlah totalnya 420 (sesuai DB)
+# A. Data Tabel: Semua data (termasuk yang lat/lon nya None)
 df_table = grouped.copy()
 
-# B. Data Peta: HANYA yang punya koordinat valid
+# B. Data Peta: Hanya yang punya lat/lon valid
 valid_mask = (pd.notna(grouped["lat"])) & (pd.notna(grouped["lon"]))
 grouped_valid_for_map = grouped[valid_mask].copy()
 
-# Tambahkan properti visual hanya untuk data Peta
+# Tambahkan properti visual map
 if not grouped_valid_for_map.empty:
     grouped_valid_for_map["radius"] = (grouped_valid_for_map["Jumlah Pasien"] ** 0.5) * 2500 
     grouped_valid_for_map["label"] = grouped_valid_for_map.apply(lambda r: f"{r['Cabang HMHI']} : {int(r['Jumlah Pasien'])}", axis=1)
@@ -183,28 +177,30 @@ if not grouped_valid_for_map.empty:
 # =========================
 # TAMPILAN: TABEL
 # =========================
-# Hitung total dari df_table (semua data)
 total_pasien_real = df_table["Jumlah Pasien"].sum()
 
 st.subheader(f"📋 Rekap Per Cabang HMHI (Total Pasien: {total_pasien_real})")
 
-# Persiapan DataFrame untuk ditampilkan di UI
-display_cols = ["Cabang HMHI", "Jumlah Pasien"]
+# --- PERUBAHAN: Menambahkan 'lat' dan 'lon' ke display_cols ---
+display_cols = ["Cabang HMHI", "Jumlah Pasien", "lat", "lon"]
 df_to_show = df_table[display_cols].sort_values("Jumlah Pasien", ascending=False).copy()
 
-# Tambahkan Baris TOTAL di bawah
+# --- PERUBAHAN: Menambahkan lat/lon kosong untuk baris TOTAL ---
 row_total = pd.DataFrame([{
     "Cabang HMHI": "TOTAL", 
-    "Jumlah Pasien": total_pasien_real
+    "Jumlah Pasien": total_pasien_real,
+    "lat": None,
+    "lon": None
 }])
 df_to_show = pd.concat([df_to_show, row_total], ignore_index=True)
 
+# Tampilkan dataframe (lat/lon akan muncul)
 st.dataframe(df_to_show, use_container_width=True, hide_index=True)
 
-# Tampilkan peringatan jika ada data yang tidak masuk peta
+# Info jika ada data tanpa koordinat
 count_no_geo = len(df_table) - len(grouped_valid_for_map)
 if count_no_geo > 0:
-    st.info(f"ℹ️ Ada **{count_no_geo} area/cabang** yang datanya masuk dalam tabel Total di atas, namun tidak muncul di Peta karena belum terdaftar koordinatnya di sistem.")
+    st.info(f"ℹ️ Ada **{count_no_geo} area/cabang** yang koordinatnya kosong (lihat kolom lat/lon bernilai None/NaN di tabel atas). Data ini tetap dihitung, namun tidak muncul di Peta.")
 
 # =========================
 # TAMPILAN: PETA
@@ -252,7 +248,6 @@ else:
         "style": {"backgroundColor": "white", "color": "black", "zIndex": "999"}
     }
 
-    # Helper Mapbox
     def get_map_style():
         token = st.secrets.get("MAPBOX_TOKEN", os.getenv("MAPBOX_TOKEN"))
         return "mapbox://styles/mapbox/light-v9" if token else None
@@ -271,7 +266,7 @@ if not df_to_show.empty:
     buffer = io.BytesIO()
     
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        # Download tabel persis seperti yang ditampilkan (termasuk TOTAL dan data tanpa koordinat)
+        # Download tabel persis seperti tampilan (termasuk lat/lon)
         df_to_show.to_excel(writer, index=False, sheet_name='Rekap Pasien')
             
     buffer.seek(0)
