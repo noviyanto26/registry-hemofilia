@@ -1082,7 +1082,7 @@ def set_editing_state(state_key, data_id, table_name):
     # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
     # Ini memastikan user tidak bisa mengedit data dari cabang lain
     # dengan menebak ID (meskipun datanya tidak akan muncul di tabel)
-    query = f"SELECT * FROM {table_name} t"
+    query = f"SELECT t.* FROM {table_name} t"
     
     # Tambah join untuk filter by cabang jika tabelnya bukan patients
     if table_name != 'pwh.patients':
