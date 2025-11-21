@@ -453,9 +453,12 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
 # ------------------------------------------------------------------------------
 # Helper eksekusi (Hanya untuk INSERT/UPDATE)
 # ------------------------------------------------------------------------------
+# Cari fungsi run_exec dan update menjadi seperti ini:
 def run_exec(sql: str, params: dict | None = None):
-    with engine.begin() as conn:
+    # Gunakan connect() dan commit() eksplisit agar lebih aman
+    with engine.connect() as conn:
         conn.execute(text(sql), params or {})
+        conn.commit()
 
 # ------------------------------------------------------------------------------
 # Ambil data referensi dari DB
