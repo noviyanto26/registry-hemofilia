@@ -28,7 +28,7 @@ def _build_query_runner() -> Callable[[str], pd.DataFrame]:
         # Percobaan 1: Native Streamlit Connection
         conn = st.connection("postgresql", type="sql")
         def _run_query_streamlit(sql: str) -> pd.DataFrame:
-            return conn.query(sql)
+            return conn.query(sql, ttl=0)
         # Test koneksi
         _ = _run_query_streamlit("SELECT 1 as ok;")
         return _run_query_streamlit
