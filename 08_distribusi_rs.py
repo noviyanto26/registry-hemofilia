@@ -28,7 +28,8 @@ def _build_query_runner() -> Callable[[str], pd.DataFrame]:
     try:
         conn = st.connection("postgresql", type="sql")
         def _run_query_streamlit(sql: str) -> pd.DataFrame:
-            return conn.query(sql)
+            # MODIFIKASI 1: Menambahkan ttl=0 agar data realtime (tidak di-cache)
+            return conn.query(sql, ttl=0)
         _ = _run_query_streamlit("SELECT 1 as ok;")
         return _run_query_streamlit
     except Exception:
@@ -72,7 +73,7 @@ def load_rekap() -> pd.DataFrame:
     return df
 
 # =========================
-# 4. CONFIG & UTIL GEOCODING (PERBAIKAN UTAMA)
+# 4. CONFIG & UTIL GEOCODING
 # =========================
 STATIC_CITY_COORDS = {
     ("jakarta", "dki jakarta"): (-6.1754, 106.8272),
@@ -160,9 +161,7 @@ def get_coordinates(city_raw: str, prov_raw: str, lookup_dict: dict) -> Optional
     if (c_norm, p_norm) in STATIC_CITY_COORDS:
         return STATIC_CITY_COORDS[(c_norm, p_norm)]
     
-    # 3. (Opsional) Cek jika Provinsi typo (misal Jakarta vs DKI Jakarta)
-    # Hati-hati, ini bisa false positive jika ada nama kota sama di provinsi beda
-    # Namun untuk kasus Indonesia, nama kota/kabupaten relatif unik
+    # 3. (Opsional) Cek jika Provinsi typo
     for (k_city, k_prov), val in lookup_dict.items():
         if k_city == c_norm:
             return val
@@ -181,7 +180,6 @@ if df_pasien.empty:
 
 # B. Agregasi Data (Group By Kota & Propinsi)
 grouped = df_pasien.groupby(["Kota", "Propinsi"], dropna=False).agg(
-    # Gunakan dictionary unpacking untuk nama kolom dinamis/spasi
     **{
         "Jumlah Pasien": ("Jumlah Pasien", "sum"),
         "Rumah Sakit Penangan": ("Nama Rumah Sakit", lambda s: ", ".join(s.unique()))
@@ -235,12 +233,33 @@ if not grouped_missing.empty:
 # Tabel Data Valid
 st.subheader(f"📋 Data Terpetakan ({len(grouped_valid)} Kota)")
 if not grouped_valid.empty:
-    # Tambahkan kolom radius dan label untuk visualisasi
+    # Tambahkan kolom radius dan label untuk visualisasi Map
     grouped_valid["radius"] = (grouped_valid["Jumlah Pasien"] ** 0.5) * 2000
     grouped_valid["label"] = grouped_valid.apply(lambda r: f"{r['Kota']} : {int(r['Jumlah Pasien'])}", axis=1)
     
+    # MODIFIKASI 2: Membuat Tabel Display dengan Baris TOTAL
+    # 1. Ambil kolom yang akan ditampilkan dan urutkan
+    df_display = grouped_valid[["Kota", "Propinsi", "Jumlah Pasien", "Rumah Sakit Penangan", "lat", "lon"]].sort_values("Jumlah Pasien", ascending=False).copy()
+    
+    # 2. Hitung Total
+    total_pasien = df_display["Jumlah Pasien"].sum()
+    
+    # 3. Buat Baris Total
+    row_total = pd.DataFrame([{
+        "Kota": "TOTAL",
+        "Propinsi": "",
+        "Jumlah Pasien": total_pasien,
+        "Rumah Sakit Penangan": "",
+        "lat": None,
+        "lon": None
+    }])
+    
+    # 4. Gabungkan (Concatenate) ke bagian bawah tabel
+    df_display = pd.concat([df_display, row_total], ignore_index=True)
+
+    # Tampilkan Tabel
     st.dataframe(
-        grouped_valid[["Kota", "Propinsi", "Jumlah Pasien", "Rumah Sakit Penangan", "lat", "lon"]].sort_values("Jumlah Pasien", ascending=False),
+        df_display,
         use_container_width=True,
         hide_index=True
     )
