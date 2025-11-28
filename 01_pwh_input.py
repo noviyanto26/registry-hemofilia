@@ -879,7 +879,10 @@ def import_bulk_excel(file) -> dict:
                 df = df.rename(columns=rename_map) # Rename dari B. Indo -> B. Inggris (internal)
             for c in cols:
                 if c not in df.columns: df[c] = None
-            return df.fillna(value=None).dropna(how="all")
+            
+            df = df.dropna(how="all")
+            return df.where(pd.notnull(df), None)
+            
         return pd.DataFrame(columns=cols)
 
     # Definisikan Peta Pembalikan (Header B. Indo -> Nama Internal)
