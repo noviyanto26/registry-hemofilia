@@ -848,7 +848,7 @@ def update_contact(id: int, payload: dict):
     run_exec(sql, payload)
 
 # ------------------------------------------------------------------------------
-# Import Bulk Excel
+# Import Bulk Excel (DIPERBAIKI)
 # ------------------------------------------------------------------------------
 def _to_bool(x):
     s = str(x).strip().lower()
@@ -891,7 +891,7 @@ def import_bulk_excel(file) -> dict:
         "Gol. Darah": "blood_group", "Rhesus": "rhesus", "Jenis Kelamin": "gender", "Pekerjaan": "occupation",
         "Pendidikan Terakhir": "education", "Alamat": "address", "No. Ponsel": "phone", "Propinsi": "province",
         "Kabupaten/Kota": "city", "Kecamatan": "district", "Kelurahan/Desa": "village",
-        "HMHI Cabang": "cabang", "Kota Cakupan Cabang": "kota_cakupan", # <-- TAMBAHAN BARU
+        "HMHI Cabang": "cabang", "Kota Cakupan Cabang": "kota_cakupan",
         "Catatan": "note"
     }
     MAP_DIAG = {
@@ -927,15 +927,28 @@ def import_bulk_excel(file) -> dict:
     df_pat = df_or_empty("pasien", pat_cols_internal, MAP_PAT)
     inserted_patients = []
     
-    # --- PERUBAHAN DI SINI: Dapatkan status admin/cabang ---
     user_branch_bulk = st.session_state.get("user_branch", None)
     is_admin_bulk = (user_branch_bulk == "ALL" or not user_branch_bulk)
-    df_hmhi_lookup = fetch_hmhi_branches() # Ambil untuk lookup kota cakupan
+    df_hmhi_lookup = fetch_hmhi_branches() 
     
     for _, r in df_pat[df_pat["full_name"].notna()].iterrows():
+        # --- FIX 1: Lewati baris instruksi/catatan di Excel ---
+        raw_name = _safe_str(r.get("full_name"))
+        if not raw_name or raw_name.lower().startswith("catatan:"):
+            continue
+
+        # --- FIX 2: Bersihkan NIK dari format float (hapus .0) ---
+        raw_nik = r.get("nik")
+        clean_nik = None
+        if pd.notna(raw_nik):
+            s_nik = str(raw_nik).strip()
+            if s_nik.endswith(".0"):
+                s_nik = s_nik[:-2] # Hapus .0
+            clean_nik = s_nik
+
         payload = {
-            "full_name": _safe_str(r.get("full_name")), "birth_place": _safe_str(r.get("birth_place")),
-            "birth_date": _to_date(r.get("birth_date")), "nik": _safe_str(r.get("nik")),
+            "full_name": raw_name, "birth_place": _safe_str(r.get("birth_place")),
+            "birth_date": _to_date(r.get("birth_date")), "nik": clean_nik,
             "blood_group": _safe_str(r.get("blood_group")),
             "rhesus": _safe_str(r.get("rhesus")), "gender": _safe_str(r.get("gender")),
             "occupation": _safe_str(r.get("occupation")), "education": _safe_str(r.get("education")),
@@ -943,39 +956,35 @@ def import_bulk_excel(file) -> dict:
             "phone": _safe_str(r.get("phone")), "province": _safe_str(r.get("province")), 
             "city": _safe_str(r.get("city")), "note": _safe_str(r.get("note")),
             "village": _safe_str(r.get("village")), "district": _safe_str(r.get("district")),
-            "cabang": _safe_str(r.get("cabang")), "kota_cakupan": _safe_str(r.get("kota_cakupan")) # <-- TAMBAHAN BARU
+            "cabang": _safe_str(r.get("cabang")), "kota_cakupan": _safe_str(r.get("kota_cakupan")) 
         }
         
-        # --- PERUBAHAN DI SINI: Override cabang jika bukan admin ---
+        # Override cabang jika bukan admin
         if not is_admin_bulk and user_branch_bulk:
             payload["cabang"] = user_branch_bulk
-            # Cari kota cakupan yang sesuai
             match_cabang = df_hmhi_lookup[df_hmhi_lookup['cabang'] == user_branch_bulk]
             if not match_cabang.empty:
                 payload["kota_cakupan"] = match_cabang.iloc[0]['kota_cakupan'] or None
             else:
-                payload["kota_cakupan"] = None # Cabang user tidak ada di list
+                payload["kota_cakupan"] = None 
         
-        # --- PERBAIKAN: Validasi NIK Bulk ---
+        # --- Validasi NIK Bulk ---
         if not payload["full_name"]:
-            # st.warning("Melewatkan baris tanpa Nama Lengkap.")
-            continue # Lewati baris
+            continue 
             
         nik_bulk = payload.get("nik")
         if not nik_bulk:
             st.error(f"Gagal impor '{payload['full_name']}': NIK wajib diisi.")
-            continue # Lewati baris ini
+            continue 
 
         if len(nik_bulk) != 16:
             st.error(f"Gagal impor '{payload['full_name']}': NIK '{nik_bulk}' harus 16 digit (memiliki {len(nik_bulk)} digit).")
-            continue # Lewati baris ini
-        # --- AKHIR PERBAIKAN ---
+            continue 
+        # -------------------------
 
         pid = insert_patient(payload)
         inserted_patients.append((pid, payload["full_name"]))
 
-    # --- PERUBAHAN DI SINI: Panggil run_df_branch ---
-    # Ini akan memetakan nama ke ID hanya untuk pasien di cabang user
     map_new = {name.lower(): pid for pid, name in inserted_patients}
     df_all_pat = run_df_branch("SELECT id, full_name FROM pwh.patients")
     map_db = {str(n).lower(): int(i) for i, n in zip(df_all_pat["id"], df_all_pat["full_name"])}
@@ -985,18 +994,22 @@ def import_bulk_excel(file) -> dict:
         if pd.notna(pid) and str(pid).strip():
             try: return int(pid)
             except Exception: pass
+        
         nm_val = row.get("full_name")
-        if nm_val is None: return None
-        nm = _safe_str(nm_val).lower() # 'full_name' sudah di-rename dari 'Nama Lengkap'
+        # --- FIX 3: Cegah crash jika Nama kosong (NoneType error) ---
+        safe_nm = _safe_str(nm_val)
+        if not safe_nm: 
+            return None
+            
+        nm = safe_nm.lower() 
         if nm: return map_new.get(nm) or map_db.get(nm)
         return None
 
-    # Gunakan nama B. Indo di hasil dan konfigurasi
     results = {"Pasien": len(inserted_patients)}
     sheet_configs = {
-        "Diagnosa": ("diagnosa", # nama sheet lowercase
-                       ["patient_id","full_name","hemo_type","severity","diagnosed_on","source"], # nama kolom internal
-                       MAP_DIAG, # Peta pembalikan
+        "Diagnosa": ("diagnosa", 
+                       ["patient_id","full_name","hemo_type","severity","diagnosed_on","source"], 
+                       MAP_DIAG, 
                        lambda r, pid: insert_diagnosis(pid, _safe_str(r.get("hemo_type")), _safe_str(r.get("severity")), _to_date(r.get("diagnosed_on")), _safe_str(r.get("source")))),
         "Inhibitor": ("inhibitor",
                        ["patient_id","full_name","factor","titer_bu","measured_on","lab"],
@@ -1042,9 +1055,8 @@ def import_bulk_excel(file) -> dict:
                     count += 1
                 except Exception as e:
                     # Optional: Log the error for debugging
-                    # st.warning(f"Gagal impor baris di sheet {key} untuk PID {pid}: {e}")
                     pass
-        results[key] = count # 'key' sekarang "Diagnosa", "Inhibitor", dst.
+        results[key] = count 
 
     return results
 
