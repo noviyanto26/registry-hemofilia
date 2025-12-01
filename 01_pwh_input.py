@@ -779,7 +779,11 @@ def delete_death_record(id: int):
     current_user_branch = st.session_state.get("user_branch", None)
     is_admin = (current_user_branch == "ALL" or not current_user_branch)
     
-    params = {"id": id}
+    # --- PERBAIKAN UTAMA DI SINI ---
+    # Memaksa konversi id menjadi integer biasa (Python native)
+    # agar tidak dianggap sebagai numpy.int64 yang menyebabkan error.
+    params = {"id": int(id)}
+    # -------------------------------
 
     if not is_admin:
         sql = """
