@@ -2059,7 +2059,7 @@ if tab_hospital:
         if 'hosp_selected_patient_name' in st.session_state and st.session_state.hosp_selected_patient_name:
             query_hosp += " WHERE p.full_name ILIKE :name"
             params_hosp['name'] = f"%{st.session_state.hosp_selected_patient_name}%"
-        query_hosp += " ORDER BY th.id DESC LIMIT 300;"
+        query_hosp += " ORDER BY th.id DESC;"
 
         df_th = run_df_branch(query_hosp, params_hosp)
         
