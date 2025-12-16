@@ -1629,7 +1629,7 @@ if tab_diag:
         if 'diag_selected_patient_name' in st.session_state and st.session_state.diag_selected_patient_name:
             query_diag += " WHERE p.full_name ILIKE :name"
             params['name'] = f"%{st.session_state.diag_selected_patient_name}%"
-        query_diag += " ORDER BY d.id DESC LIMIT 300;"
+        query_diag += " ORDER BY d.id DESC;"
         
         df_diag = run_df_branch(query_diag, params)
 
