@@ -2355,8 +2355,7 @@ if tab_view:
         df = run_df_branch("""
             SELECT s.* FROM pwh.patient_summary s
             JOIN pwh.patients p ON s.id = p.id
-            ORDER BY s.id DESC 
-            LIMIT 300;
+            ORDER BY s.id DESC;
         """)
         
         if df.empty:
