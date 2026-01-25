@@ -7,6 +7,7 @@ import streamlit as st
 from pandas import ExcelWriter
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 
 st.set_page_config(page_title="PWH Input", page_icon="🩸", layout="wide")
 
@@ -613,9 +614,49 @@ def _alias_df(df: pd.DataFrame, alias_map: dict) -> pd.DataFrame:
 # Helper Functions (INSERT, UPDATE)
 # ------------------------------------------------------------------------------
 def insert_patient(payload: dict) -> int:
-    sql = "INSERT INTO pwh.patients (full_name, birth_place, birth_date, nik, blood_group, rhesus, gender, occupation, education, address, phone, province, city, note, village, district, cabang, kota_cakupan) VALUES (:full_name, :birth_place, :birth_date, :nik, :blood_group, :rhesus, :gender, :occupation, :education, :address, :phone, :province, :city, :note, :village, :district, :cabang, :kota_cakupan) RETURNING id;"
-    with engine.begin() as conn:
-        return int(conn.execute(text(sql), payload).scalar())
+    # 1. Sanitasi Nomor Telepon (Mencegah error 'value too long')
+    # Ambil 20 karakter pertama saja jika kepanjangan
+    if payload.get('phone') and len(str(payload['phone'])) > 20:
+        raw_phone = str(payload['phone'])
+        # Jika formatnya "08xx/08yy", ambil yang depan saja
+        if '/' in raw_phone:
+            raw_phone = raw_phone.split('/')[0].strip()
+        # Potong paksa jika masih > 20
+        payload['phone'] = raw_phone[:20]
+
+    sql = """
+        INSERT INTO pwh.patients (
+            full_name, birth_place, birth_date, nik, blood_group, rhesus, gender, 
+            occupation, education, address, phone, province, city, note, 
+            village, district, cabang, kota_cakupan
+        ) VALUES (
+            :full_name, :birth_place, :birth_date, :nik, :blood_group, :rhesus, :gender, 
+            :occupation, :education, :address, :phone, :province, :city, :note, 
+            :village, :district, :cabang, :kota_cakupan
+        ) RETURNING id;
+    """
+    
+    try:
+        # Coba lakukan INSERT data baru
+        with engine.begin() as conn:
+            return int(conn.execute(text(sql), payload).scalar())
+            
+    except IntegrityError as e:
+        # Tangkap error jika NIK sudah ada (UniqueViolation)
+        err_msg = str(e).lower()
+        if "unique_nik" in err_msg or "duplicate key" in err_msg:
+            print(f"NIK {payload['nik']} sudah ada, mengambil ID existing...")
+            
+            # Query untuk mengambil ID dari pasien yang sudah ada
+            find_sql = "SELECT id FROM pwh.patients WHERE nik = :nik"
+            with engine.begin() as conn:
+                existing_id = conn.execute(text(find_sql), {"nik": payload["nik"]}).scalar()
+                
+                if existing_id:
+                    return int(existing_id)
+        
+        # Jika errornya bukan karena NIK duplikat, biarkan program error (raise)
+        raise e
 
 def update_patient(id: int, payload: dict):
     payload['id'] = id
