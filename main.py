@@ -1,7 +1,7 @@
 import runpy
 import os
 import streamlit as st
-import streamlit.components.v1 as components  # <--- 1. Import Library
+import streamlit.components.v1 as components
 from streamlit_option_menu import option_menu
 from sqlalchemy import create_engine, text, Engine
 from passlib.context import CryptContext
@@ -71,7 +71,7 @@ else:
     st.stop()
 
 # -----------------------------
-# Gunakan bcrypt_sha256 untuk keamanan & kompatibilitas
+# Keamanan Password
 # -----------------------------
 pwd_context = CryptContext(
     schemes=["bcrypt_sha256", "bcrypt"],
@@ -110,11 +110,11 @@ def check_password() -> bool:
 
             password_to_check = password[:72]
 
-            # Verifikasi hash dengan bcrypt_sha256 fallback ke bcrypt
+            # Verifikasi hash
             if pwd_context.verify(password_to_check, user_data['hashed_password']):
                 st.session_state.auth_ok = True
                 st.session_state.username = user_data['username']
-                st.session_state.user_branch = user_data['cabang']
+                st.session_state.user_branch = user_data['cabang'] # Menyimpan info cabang/role
                 st.rerun()
             else:
                 st.error("Username atau password salah.")
@@ -128,9 +128,9 @@ def check_password() -> bool:
     return False
 
 # -----------------------------
-# Menu Aplikasi
+# Definisi Menu & Icon Lengkap (Untuk Admin)
 # -----------------------------
-MENU_ITEMS = {
+FULL_MENU_ITEMS = {
     "📝 Input Data Pasien": "01_pwh_input.py",
     "📊 Rekapitulasi per Kelompok Usia": "02_rekap_pwh.py",
     "🚻 Rekapitulasi per Jenis Kelamin": "03_rekap_gender.py",
@@ -141,8 +141,9 @@ MENU_ITEMS = {
     "🗺️ Distribusi Pasien per RS Penangan": "08_distribusi_rs.py",
 }
 
-ICONS = [
-    "pencil-square", "bar-chart", "person-arms-up", "hospital", "book", "map", "geo-alt",
+FULL_ICONS = [
+    "pencil-square", "bar-chart", "person-arms-up", "hospital", 
+    "book", "map", "geo-alt", "building" # Menambahkan satu icon 'building' agar jumlahnya pas 8
 ]
 
 # -----------------------------
@@ -150,19 +151,38 @@ ICONS = [
 # -----------------------------
 def main():
     st.title("📊 Pendataan Hemofilia")
+    
+    # Cek Login
     if not check_password():
         return
 
+    # Pesan Selamat Datang
     if "auth_ok" in st.session_state and not st.session_state.get("welcome_message_shown", False):
         st.success(f"Selamat datang, **{st.session_state.username}**!")
         st.session_state.welcome_message_shown = True
 
+    # --- LOGIKA HAK AKSES MENU ---
+    user_branch = st.session_state.get('user_branch', 'N/A')
+    
+    # Jika cabang == 'ALL', anggap sebagai ADMIN (Akses Semua)
+    if user_branch == 'ALL':
+        current_menu = FULL_MENU_ITEMS
+        current_icons = FULL_ICONS
+        role_label = "Admin (Semua Cabang)"
+    else:
+        # Jika bukan admin, hanya akses Input Data Pasien
+        current_menu = {"📝 Input Data Pasien": "01_pwh_input.py"}
+        current_icons = ["pencil-square"]
+        role_label = user_branch
+
     with st.sidebar:
         st.markdown("### 📁 Menu")
+        
+        # Render Option Menu Berdasarkan Hak Akses
         selection = option_menu(
             menu_title="",
-            options=list(MENU_ITEMS.keys()),
-            icons=ICONS[:len(MENU_ITEMS)],
+            options=list(current_menu.keys()),
+            icons=current_icons[:len(current_menu)], # Sesuaikan jumlah icon dengan menu
             default_index=0,
             orientation="vertical",
         )
@@ -170,16 +190,14 @@ def main():
         st.divider()
         col1, col2 = st.columns([1, 1])
         with col1:
-            branch_info = st.session_state.get('user_branch', 'N/A')
-            if branch_info == "ALL":
-                branch_info = "Admin (Semua Cabang)"
-            st.caption(f"👤 {st.session_state.get('username', '')}\n🏢 {branch_info}")
+            st.caption(f"👤 {st.session_state.get('username', '')}\n🏢 {role_label}")
         with col2:
             if st.button("Logout", use_container_width=True):
                 st.session_state.clear()
                 st.rerun()
 
-    page_path = MENU_ITEMS[selection]
+    # Eksekusi Halaman yang Dipilih
+    page_path = current_menu[selection]
     try:
         runpy.run_path(page_path, run_name="__main__")
     except FileNotFoundError:
