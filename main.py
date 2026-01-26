@@ -1,5 +1,6 @@
 import runpy
 import os
+import random  # <--- Import library random
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_option_menu import option_menu
@@ -80,23 +81,72 @@ pwd_context = CryptContext(
 )
 
 # -----------------------------
+# Fungsi Helper CAPTCHA
+# -----------------------------
+def generate_captcha():
+    """Membuat soal matematika acak dan menyimpannya di session state."""
+    if 'captcha_num1' not in st.session_state:
+        st.session_state.captcha_num1 = random.randint(1, 10)
+        st.session_state.captcha_num2 = random.randint(1, 10)
+        st.session_state.captcha_op = random.choice(['+', '-', '*'])
+
+def reset_captcha():
+    """Mereset soal captcha agar berubah setelah percobaan gagal."""
+    st.session_state.captcha_num1 = random.randint(1, 10)
+    st.session_state.captcha_num2 = random.randint(1, 10)
+    st.session_state.captcha_op = random.choice(['+', '-', '*'])
+
+# -----------------------------
 # Fungsi Login
 # -----------------------------
 def check_password() -> bool:
     if st.session_state.get("auth_ok", False):
         return True
 
+    # Inisialisasi CAPTCHA jika belum ada
+    generate_captcha()
+    
+    # Hitung jawaban yang benar berdasarkan operator
+    num1 = st.session_state.captcha_num1
+    num2 = st.session_state.captcha_num2
+    op = st.session_state.captcha_op
+    
+    if op == '+':
+        correct_answer = num1 + num2
+    elif op == '-':
+        correct_answer = num1 - num2
+    else:
+        correct_answer = num1 * num2
+
     with st.sidebar:
         st.markdown("### 🔐 Login")
         username = st.text_input("Username", key="login_username")
         password = st.text_input("Password", type="password", key="login_password")
+        
+        st.markdown("---")
+        # UI CAPTCHA
+        captcha_label = f"**Keamanan:** Berapa hasil dari {num1} {op} {num2} ?"
+        captcha_input = st.text_input(captcha_label, key="captcha_input", help="Jawab pertanyaan matematika sederhana ini untuk verifikasi.")
+        
         login = st.button("Masuk")
 
     if login:
-        if not username or not password:
-            st.error("Username dan Password wajib diisi.")
+        # 1. Validasi Input Kosong
+        if not username or not password or not captcha_input:
+            st.error("Username, Password, dan CAPTCHA wajib diisi.")
             return False
 
+        # 2. Validasi CAPTCHA
+        try:
+            if int(captcha_input) != correct_answer:
+                st.error("Jawaban CAPTCHA salah. Silakan coba lagi.")
+                reset_captcha() # Ganti soal jika salah
+                return False
+        except ValueError:
+            st.error("CAPTCHA harus berupa angka.")
+            return False
+
+        # 3. Validasi Database (Jika CAPTCHA benar)
         try:
             username_cleaned = username.strip()
             with DB_ENGINE.connect() as conn:
@@ -106,6 +156,7 @@ def check_password() -> bool:
 
             if not user_data:
                 st.error("Username atau password salah.")
+                reset_captcha() # Ganti soal untuk keamanan
                 return False
 
             password_to_check = password[:72]
@@ -114,10 +165,13 @@ def check_password() -> bool:
             if pwd_context.verify(password_to_check, user_data['hashed_password']):
                 st.session_state.auth_ok = True
                 st.session_state.username = user_data['username']
-                st.session_state.user_branch = user_data['cabang'] # Menyimpan info cabang/role
+                st.session_state.user_branch = user_data['cabang']
+                # Hapus state captcha agar bersih
+                del st.session_state['captcha_num1']
                 st.rerun()
             else:
                 st.error("Username atau password salah.")
+                reset_captcha()
                 return False
 
         except Exception as e:
@@ -143,7 +197,7 @@ FULL_MENU_ITEMS = {
 
 FULL_ICONS = [
     "pencil-square", "bar-chart", "person-arms-up", "hospital", 
-    "book", "map", "geo-alt", "building" # Menambahkan satu icon 'building' agar jumlahnya pas 8
+    "book", "map", "geo-alt", "building"
 ]
 
 # -----------------------------
@@ -152,7 +206,7 @@ FULL_ICONS = [
 def main():
     st.title("📊 Pendataan Hemofilia")
     
-    # Cek Login
+    # Cek Login (termasuk CAPTCHA)
     if not check_password():
         return
 
@@ -164,13 +218,11 @@ def main():
     # --- LOGIKA HAK AKSES MENU ---
     user_branch = st.session_state.get('user_branch', 'N/A')
     
-    # Jika cabang == 'ALL', anggap sebagai ADMIN (Akses Semua)
     if user_branch == 'ALL':
         current_menu = FULL_MENU_ITEMS
         current_icons = FULL_ICONS
         role_label = "Admin (Semua Cabang)"
     else:
-        # Jika bukan admin, hanya akses Input Data Pasien
         current_menu = {"📝 Input Data Pasien": "01_pwh_input.py"}
         current_icons = ["pencil-square"]
         role_label = user_branch
@@ -178,11 +230,10 @@ def main():
     with st.sidebar:
         st.markdown("### 📁 Menu")
         
-        # Render Option Menu Berdasarkan Hak Akses
         selection = option_menu(
             menu_title="",
             options=list(current_menu.keys()),
-            icons=current_icons[:len(current_menu)], # Sesuaikan jumlah icon dengan menu
+            icons=current_icons[:len(current_menu)],
             default_index=0,
             orientation="vertical",
         )
@@ -196,7 +247,6 @@ def main():
                 st.session_state.clear()
                 st.rerun()
 
-    # Eksekusi Halaman yang Dipilih
     page_path = current_menu[selection]
     try:
         runpy.run_path(page_path, run_name="__main__")
