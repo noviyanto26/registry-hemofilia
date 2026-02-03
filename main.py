@@ -136,7 +136,7 @@ def check_password() -> bool:
 
     with col2:
         with st.container(border=True):
-            st.markdown("<h2 style='text-align: center;'>🔐 Login Dashboard <br> Registry Hemofilia</h2>", unsafe_allow_html=True)
+            st.markdown("<h2 style='text-align: center;'>🔐 Login Registry Hemofilia</h2>", unsafe_allow_html=True)
        True)
             st.info("Silakan masukkan username dan password Anda.")
 
