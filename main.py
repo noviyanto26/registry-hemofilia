@@ -175,7 +175,7 @@ def check_password() -> bool:
                 unsafe_allow_html=True
             )
 
-            st.info("Silakan masukkan kredensial Anda.")
+            st.info("🔐 Silakan masukkan username dan password Anda.")
 
             # --- FORM INPUT ---
             with st.form(key="login_form", clear_on_submit=False):
