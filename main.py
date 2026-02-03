@@ -104,29 +104,39 @@ def check_password() -> bool:
     if st.session_state.get("auth_ok", False):
         return True
 
-    # --- CSS CUSTOM UNTUK TAMPILAN LOGIN ---
+# --- CSS CUSTOM UNTUK TAMPILAN LOGIN (DIPERKUAT) ---
     login_style = """
         <style>
             /* 1. Menyembunyikan Sidebar saat Login */
             [data-testid="stSidebar"] {display: none;}
             [data-testid="stSidebarCollapsedControl"] {display: none;}
             
-            /* 2. Mengubah Warna Background Halaman Utama (Abu-abu lembut) */
-            [data-testid="stAppViewContainer"] {
-                background-color: #f0f2f6; 
+            /* 2. BACKGROUND HALAMAN UTAMA (ABU-ABU) */
+            /* Menggunakan !important untuk memaksa warna berubah */
+            .stApp, [data-testid="stAppViewContainer"] {
+                background-color: #f0f2f6 !important;
             }
             
-            /* 3. Membuat Kotak Form (Container) menjadi Putih & Ada Bayangan */
+            /* 3. BACKGROUND CONTAINER / KOTAK LOGIN (PUTIH) */
+            /* Target wrapper container yang memiliki border */
             [data-testid="stVerticalBlockBorderWrapper"] {
-                background-color: white;
-                border-radius: 15px; /* Sudut melengkung */
-                box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.1); /* Efek bayangan */
-                padding: 20px;
+                background-color: #ffffff !important;
+                border-radius: 15px !important;
+                border: 1px solid #e0e0e0 !important; /* Border halus */
+                box-shadow: 0 4px 20px rgba(0,0,0,0.1) !important; /* Bayangan lebih nyata */
+                padding: 30px !important;
             }
             
-            /* 4. Menghilangkan padding atas agar lebih naik ke tengah */
+            /* 4. MENGHILANGKAN PADDING BAWAAN AGAR POSISI LEBIH PAS */
             .block-container {
-                padding-top: 5rem;
+                padding-top: 5rem !important;
+                max-width: 100% !important;
+            }
+            
+            /* Opsional: Membuat input field sedikit lebih cantik */
+            div[data-baseweb="input"] > div {
+                background-color: #f8f9fa !important;
+                border-radius: 8px !important;
             }
         </style>
     """
