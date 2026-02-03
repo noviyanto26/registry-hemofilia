@@ -97,7 +97,7 @@ def reset_captcha():
     st.session_state.captcha_op = random.choice(['+', '-', '*'])
 
 # -----------------------------
-# Fungsi Login (FIXED INDENTATION)
+# Fungsi Login (FIXED WIDTH)
 # -----------------------------
 def check_password() -> bool:
     # Jika sudah login, langsung return True
@@ -129,7 +129,8 @@ def check_password() -> bool:
         correct_answer = num1 * num2
 
     # --- LAYOUT LOGIN DI TENGAH LAYAR ---
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # PERUBAHAN DISINI: Menggunakan rasio [2, 1, 2] agar kolom tengah lebih sempit
+    col1, col2, col3 = st.columns([2, 1, 2])
 
     with col2:
         with st.container(border=True):
@@ -154,7 +155,6 @@ def check_password() -> bool:
                 st.markdown("---")
                 
                 # UI CAPTCHA
-                # PERBAIKAN INDENTASI DI SINI:
                 col_cap1, col_cap2 = st.columns([2, 1])
                 
                 with col_cap1:
@@ -200,106 +200,4 @@ def check_password() -> bool:
             password_to_check = password[:72]
 
             # Verifikasi hash
-            if pwd_context.verify(password_to_check, user_data['hashed_password']):
-                st.session_state.auth_ok = True
-                st.session_state.username = user_data['username']
-                st.session_state.user_branch = user_data['cabang']
-                
-                # Bersihkan session captcha
-                if 'captcha_num1' in st.session_state:
-                    del st.session_state['captcha_num1']
-                
-                st.rerun()
-            else:
-                st.error("Username atau password salah.")
-                reset_captcha()
-                return False
-
-        except Exception as e:
-            st.error(f"Terjadi error saat login: {e}")
-            return False
-
-    # Hentikan eksekusi kode di bawahnya jika belum login
-    st.stop()
-    return False
-
-# -----------------------------
-# Definisi Menu & Icon Lengkap (Untuk Admin)
-# -----------------------------
-FULL_MENU_ITEMS = {
-    "📝 Input Data Pasien": "01_pwh_input.py",
-    "📊 Rekapitulasi per Kelompok Usia": "02_rekap_pwh.py",
-    "🚻 Rekapitulasi per Jenis Kelamin": "03_rekap_gender.py",
-    "🏥 RS Perawatan Hemofilia": "04_rs_hemofilia.py",
-    "📚 Rekap Pendidikan & Pekerjaan": "05_rekap_pend_pekerjaan.py",
-    "🗺️ Distribusi Pasien per Cabang": "06_distribusi_pasien.py",
-    "🗺️ Rekapitulasi per Provinsi (Berdasarkan Domisili)": "07_rekap_propinsi.py",
-    "🗺️ Distribusi Pasien per RS Penangan": "08_distribusi_rs.py",
-}
-
-FULL_ICONS = [
-    "pencil-square", "bar-chart", "person-arms-up", "hospital", 
-    "book", "map", "geo-alt", "building"
-]
-
-# -----------------------------
-# Main App
-# -----------------------------
-def main():
-    # Cek Login (akan stop execution jika belum login)
-    if not check_password():
-        return
-
-    # --- KODE DI BAWAH HANYA JALAN JIKA SUDAH LOGIN ---
-
-    # Pesan Selamat Datang
-    if "auth_ok" in st.session_state and not st.session_state.get("welcome_message_shown", False):
-        st.success(f"Selamat datang, **{st.session_state.username}**!")
-        st.session_state.welcome_message_shown = True
-
-    # --- LOGIKA HAK AKSES MENU ---
-    user_branch = st.session_state.get('user_branch', 'N/A')
-    
-    if user_branch == 'ALL':
-        current_menu = FULL_MENU_ITEMS
-        current_icons = FULL_ICONS
-        role_label = "Admin (Semua Cabang)"
-    else:
-        current_menu = {"📝 Input Data Pasien": "01_pwh_input.py"}
-        current_icons = ["pencil-square"]
-        role_label = user_branch
-
-    # Sidebar Menu (Hanya muncul jika sudah login)
-    with st.sidebar:
-        st.markdown("### 📁 Menu")
-        
-        selection = option_menu(
-            menu_title="",
-            options=list(current_menu.keys()),
-            icons=current_icons[:len(current_menu)],
-            default_index=0,
-            orientation="vertical",
-        )
-
-        st.divider()
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            st.caption(f"👤 {st.session_state.get('username', '')}\n🏢 {role_label}")
-        with col2:
-            if st.button("Logout", use_container_width=True):
-                st.session_state.clear()
-                st.rerun()
-
-    page_path = current_menu[selection]
-    try:
-        runpy.run_path(page_path, run_name="__main__")
-    except FileNotFoundError:
-        st.error(f"File halaman tidak ditemukan: `{page_path}`")
-    except Exception as e:
-        st.exception(e)
-
-    st.markdown("---")
-    st.caption("© PWH Dashboard — Streamlit")
-
-if __name__ == "__main__":
-    main()
+            if pwd_context.verify(password_to_
