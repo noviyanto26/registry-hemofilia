@@ -107,4 +107,199 @@ def check_password() -> bool:
     # --- CSS Untuk menyembunyikan Sidebar saat Login ---
     hide_sidebar_style = """
         <style>
-            [data-testid="st
+            [data-testid="stSidebar"] {display: none;}
+            [data-testid="stSidebarCollapsedControl"] {display: none;}
+        </style>
+    """
+    st.markdown(hide_sidebar_style, unsafe_allow_html=True)
+
+    # Inisialisasi CAPTCHA jika belum ada
+    generate_captcha()
+    
+    # Hitung jawaban yang benar berdasarkan operator
+    num1 = st.session_state.captcha_num1
+    num2 = st.session_state.captcha_num2
+    op = st.session_state.captcha_op
+    
+    if op == '+':
+        correct_answer = num1 + num2
+    elif op == '-':
+        correct_answer = num1 - num2
+    else:
+        correct_answer = num1 * num2
+
+    # --- LAYOUT LOGIN DI TENGAH LAYAR ---
+    col1, col2, col3 = st.columns([1, 2, 1])
+
+    with col2:
+        with st.container(border=True):
+            # --- JUDUL DITENGAHKAN DENGAN HTML DIV ---
+            st.markdown(
+                """
+                <div style="text-align: center; margin-bottom: 10px;">
+                    <h2 style="margin-bottom: 0px; padding-bottom: 0px;">Login Dashboard</h2>
+                    <p style="font-size: 18px; color: gray; margin-top: 5px; font-weight: 500;">Registry Hemofilia</p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            st.info("🔐 Silakan masukkan username dan password Anda.")
+
+            # --- FORM INPUT ---
+            with st.form(key="login_form", clear_on_submit=False):
+                username = st.text_input("Username", key="login_username")
+                password = st.text_input("Password", type="password", key="login_password")
+                
+                st.markdown("---")
+                
+                # UI CAPTCHA
+                # PERBAIKAN INDENTASI DI SINI:
+                col_cap1, col_cap2 = st.columns([2, 1])
+                
+                with col_cap1:
+                    captcha_label = f"**Keamanan:** Hitung {num1} {op} {num2} = ?"
+                    captcha_input = st.text_input(captcha_label, key="captcha_input", help="Jawab pertanyaan matematika ini.")
+                
+                with col_cap2:
+                    st.write("") 
+                    st.write("") 
+                
+                login_submitted = st.form_submit_button("Masuk", type="primary", use_container_width=True)
+
+    # Logika Validasi berjalan HANYA jika tombol submit ditekan
+    if login_submitted:
+        # 1. Validasi Input Kosong
+        if not username or not password or not captcha_input:
+            st.error("Username, Password, dan CAPTCHA wajib diisi.")
+            return False
+
+        # 2. Validasi CAPTCHA
+        try:
+            if int(captcha_input) != correct_answer:
+                st.error("Jawaban CAPTCHA salah. Silakan coba lagi.")
+                reset_captcha() 
+                return False
+        except ValueError:
+            st.error("CAPTCHA harus berupa angka.")
+            return False
+
+        # 3. Validasi Database
+        try:
+            username_cleaned = username.strip()
+            with DB_ENGINE.connect() as conn:
+                query = text("SELECT username, hashed_password, cabang FROM pwh.users WHERE username = :user")
+                result = conn.execute(query, {"user": username_cleaned})
+                user_data = result.mappings().fetchone()
+
+            if not user_data:
+                st.error("Username atau password salah.")
+                reset_captcha() 
+                return False
+
+            password_to_check = password[:72]
+
+            # Verifikasi hash
+            if pwd_context.verify(password_to_check, user_data['hashed_password']):
+                st.session_state.auth_ok = True
+                st.session_state.username = user_data['username']
+                st.session_state.user_branch = user_data['cabang']
+                
+                # Bersihkan session captcha
+                if 'captcha_num1' in st.session_state:
+                    del st.session_state['captcha_num1']
+                
+                st.rerun()
+            else:
+                st.error("Username atau password salah.")
+                reset_captcha()
+                return False
+
+        except Exception as e:
+            st.error(f"Terjadi error saat login: {e}")
+            return False
+
+    # Hentikan eksekusi kode di bawahnya jika belum login
+    st.stop()
+    return False
+
+# -----------------------------
+# Definisi Menu & Icon Lengkap (Untuk Admin)
+# -----------------------------
+FULL_MENU_ITEMS = {
+    "📝 Input Data Pasien": "01_pwh_input.py",
+    "📊 Rekapitulasi per Kelompok Usia": "02_rekap_pwh.py",
+    "🚻 Rekapitulasi per Jenis Kelamin": "03_rekap_gender.py",
+    "🏥 RS Perawatan Hemofilia": "04_rs_hemofilia.py",
+    "📚 Rekap Pendidikan & Pekerjaan": "05_rekap_pend_pekerjaan.py",
+    "🗺️ Distribusi Pasien per Cabang": "06_distribusi_pasien.py",
+    "🗺️ Rekapitulasi per Provinsi (Berdasarkan Domisili)": "07_rekap_propinsi.py",
+    "🗺️ Distribusi Pasien per RS Penangan": "08_distribusi_rs.py",
+}
+
+FULL_ICONS = [
+    "pencil-square", "bar-chart", "person-arms-up", "hospital", 
+    "book", "map", "geo-alt", "building"
+]
+
+# -----------------------------
+# Main App
+# -----------------------------
+def main():
+    # Cek Login (akan stop execution jika belum login)
+    if not check_password():
+        return
+
+    # --- KODE DI BAWAH HANYA JALAN JIKA SUDAH LOGIN ---
+
+    # Pesan Selamat Datang
+    if "auth_ok" in st.session_state and not st.session_state.get("welcome_message_shown", False):
+        st.success(f"Selamat datang, **{st.session_state.username}**!")
+        st.session_state.welcome_message_shown = True
+
+    # --- LOGIKA HAK AKSES MENU ---
+    user_branch = st.session_state.get('user_branch', 'N/A')
+    
+    if user_branch == 'ALL':
+        current_menu = FULL_MENU_ITEMS
+        current_icons = FULL_ICONS
+        role_label = "Admin (Semua Cabang)"
+    else:
+        current_menu = {"📝 Input Data Pasien": "01_pwh_input.py"}
+        current_icons = ["pencil-square"]
+        role_label = user_branch
+
+    # Sidebar Menu (Hanya muncul jika sudah login)
+    with st.sidebar:
+        st.markdown("### 📁 Menu")
+        
+        selection = option_menu(
+            menu_title="",
+            options=list(current_menu.keys()),
+            icons=current_icons[:len(current_menu)],
+            default_index=0,
+            orientation="vertical",
+        )
+
+        st.divider()
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            st.caption(f"👤 {st.session_state.get('username', '')}\n🏢 {role_label}")
+        with col2:
+            if st.button("Logout", use_container_width=True):
+                st.session_state.clear()
+                st.rerun()
+
+    page_path = current_menu[selection]
+    try:
+        runpy.run_path(page_path, run_name="__main__")
+    except FileNotFoundError:
+        st.error(f"File halaman tidak ditemukan: `{page_path}`")
+    except Exception as e:
+        st.exception(e)
+
+    st.markdown("---")
+    st.caption("© PWH Dashboard — Streamlit")
+
+if __name__ == "__main__":
+    main()
