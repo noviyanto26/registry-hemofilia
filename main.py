@@ -1,6 +1,6 @@
 import runpy
 import os
-import random  # <--- Import library random
+import random
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_option_menu import option_menu
@@ -97,11 +97,21 @@ def reset_captcha():
     st.session_state.captcha_op = random.choice(['+', '-', '*'])
 
 # -----------------------------
-# Fungsi Login
+# Fungsi Login (Dimodifikasi: Main Screen)
 # -----------------------------
 def check_password() -> bool:
+    # Jika sudah login, langsung return True
     if st.session_state.get("auth_ok", False):
         return True
+
+    # --- CSS Untuk menyembunyikan Sidebar saat Login ---
+    hide_sidebar_style = """
+        <style>
+            [data-testid="stSidebar"] {display: none;}
+            [data-testid="stSidebarCollapsedControl"] {display: none;}
+        </style>
+    """
+    st.markdown(hide_sidebar_style, unsafe_allow_html=True)
 
     # Inisialisasi CAPTCHA jika belum ada
     generate_captcha()
@@ -118,17 +128,32 @@ def check_password() -> bool:
     else:
         correct_answer = num1 * num2
 
-    with st.sidebar:
-        st.markdown("### 🔐 Login")
-        username = st.text_input("Username", key="login_username")
-        password = st.text_input("Password", type="password", key="login_password")
-        
-        st.markdown("---")
-        # UI CAPTCHA
-        captcha_label = f"**Keamanan:** Berapa hasil dari {num1} {op} {num2} ?"
-        captcha_input = st.text_input(captcha_label, key="captcha_input", help="Jawab pertanyaan matematika sederhana ini untuk verifikasi.")
-        
-        login = st.button("Masuk")
+    # --- LAYOUT LOGIN DI TENGAH LAYAR ---
+    # Menggunakan 3 kolom: Kiri (kosong), Tengah (Form), Kanan (kosong)
+    col1, col2, col3 = st.columns([1, 2, 1])
+
+    with col2:
+        # Menggunakan container dengan border agar lebih rapi
+        with st.container(border=True):
+            st.markdown("<h2 style='text-align: center;'>🔐 Login Dashboard</h2>", unsafe_allow_html=True)
+            st.info("Silakan masukkan username dan password Anda.")
+
+            username = st.text_input("Username", key="login_username")
+            password = st.text_input("Password", type="password", key="login_password")
+            
+            st.markdown("---")
+            # UI CAPTCHA
+            col_cap1, col_cap2 = st.columns([2, 1])
+            with col_cap1:
+                captcha_label = f"**Keamanan:** Hitung {num1} {op} {num2} = ?"
+                captcha_input = st.text_input(captcha_label, key="captcha_input", help="Jawab pertanyaan matematika ini.")
+            
+            with col_cap2:
+                # Spacer agar tombol sejajar
+                st.write("") 
+                st.write("") 
+                
+            login = st.button("Masuk", type="primary", use_container_width=True)
 
     if login:
         # 1. Validasi Input Kosong
@@ -156,7 +181,7 @@ def check_password() -> bool:
 
             if not user_data:
                 st.error("Username atau password salah.")
-                reset_captcha() # Ganti soal untuk keamanan
+                reset_captcha() 
                 return False
 
             password_to_check = password[:72]
@@ -166,8 +191,11 @@ def check_password() -> bool:
                 st.session_state.auth_ok = True
                 st.session_state.username = user_data['username']
                 st.session_state.user_branch = user_data['cabang']
-                # Hapus state captcha agar bersih
-                del st.session_state['captcha_num1']
+                
+                # Bersihkan session captcha
+                if 'captcha_num1' in st.session_state:
+                    del st.session_state['captcha_num1']
+                
                 st.rerun()
             else:
                 st.error("Username atau password salah.")
@@ -178,6 +206,7 @@ def check_password() -> bool:
             st.error(f"Terjadi error saat login: {e}")
             return False
 
+    # Hentikan eksekusi kode di bawahnya jika belum login
     st.stop()
     return False
 
@@ -204,11 +233,11 @@ FULL_ICONS = [
 # Main App
 # -----------------------------
 def main():
-    st.title("📊 Pendataan Hemofilia")
-    
-    # Cek Login (termasuk CAPTCHA)
+    # Cek Login (akan stop execution jika belum login)
     if not check_password():
         return
+
+    # --- KODE DI BAWAH HANYA JALAN JIKA SUDAH LOGIN ---
 
     # Pesan Selamat Datang
     if "auth_ok" in st.session_state and not st.session_state.get("welcome_message_shown", False):
@@ -227,6 +256,7 @@ def main():
         current_icons = ["pencil-square"]
         role_label = user_branch
 
+    # Sidebar Menu (Hanya muncul jika sudah login)
     with st.sidebar:
         st.markdown("### 📁 Menu")
         
