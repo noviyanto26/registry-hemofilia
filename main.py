@@ -97,21 +97,40 @@ def reset_captcha():
     st.session_state.captcha_op = random.choice(['+', '-', '*'])
 
 # -----------------------------
-# Fungsi Login (FIXED WIDTH)
+# Fungsi Login (DENGAN WARNA BACKGROUND & CARD)
 # -----------------------------
 def check_password() -> bool:
     # Jika sudah login, langsung return True
     if st.session_state.get("auth_ok", False):
         return True
 
-    # --- CSS Untuk menyembunyikan Sidebar saat Login ---
-    hide_sidebar_style = """
+    # --- CSS CUSTOM UNTUK TAMPILAN LOGIN ---
+    login_style = """
         <style>
+            /* 1. Menyembunyikan Sidebar saat Login */
             [data-testid="stSidebar"] {display: none;}
             [data-testid="stSidebarCollapsedControl"] {display: none;}
+            
+            /* 2. Mengubah Warna Background Halaman Utama (Abu-abu lembut) */
+            [data-testid="stAppViewContainer"] {
+                background-color: #f0f2f6; 
+            }
+            
+            /* 3. Membuat Kotak Form (Container) menjadi Putih & Ada Bayangan */
+            [data-testid="stVerticalBlockBorderWrapper"] {
+                background-color: white;
+                border-radius: 15px; /* Sudut melengkung */
+                box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.1); /* Efek bayangan */
+                padding: 20px;
+            }
+            
+            /* 4. Menghilangkan padding atas agar lebih naik ke tengah */
+            .block-container {
+                padding-top: 5rem;
+            }
         </style>
     """
-    st.markdown(hide_sidebar_style, unsafe_allow_html=True)
+    st.markdown(login_style, unsafe_allow_html=True)
 
     # Inisialisasi CAPTCHA jika belum ada
     generate_captcha()
@@ -129,23 +148,24 @@ def check_password() -> bool:
         correct_answer = num1 * num2
 
     # --- LAYOUT LOGIN DI TENGAH LAYAR ---
-    # PERUBAHAN DISINI: Menggunakan rasio [2, 1, 2] agar kolom tengah lebih sempit
-    col1, col2, col3 = st.columns([2, 2, 2])
+    # Menggunakan rasio 1:1:1 (Setara dengan 2:2:2) agar proporsional
+    col1, col2, col3 = st.columns([1, 1, 1])
 
     with col2:
         with st.container(border=True):
-            # --- JUDUL DITENGAHKAN DENGAN HTML DIV ---
+            # --- JUDUL DITENGAHKAN ---
             st.markdown(
                 """
-                <div style="text-align: center; margin-bottom: 10px;">
-                    <h2 style="margin-bottom: 0px; padding-bottom: 0px;">Login Dashboard</h2>
-                    <p style="font-size: 18px; color: gray; margin-top: 5px; font-weight: 500;">Registry Hemofilia</p>
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <div style="font-size: 60px;">🩸</div>
+                    <h2 style="margin-bottom: 0px; padding-bottom: 0px; color: #333;">Login Dashboard</h2>
+                    <p style="font-size: 16px; color: #666; margin-top: 5px; font-weight: 500;">Registry Hemofilia</p>
                 </div>
                 """,
                 unsafe_allow_html=True
             )
 
-            st.info("🔐 Silakan masukkan username dan password Anda.")
+            st.info("Silakan masukkan kredensial Anda.")
 
             # --- FORM INPUT ---
             with st.form(key="login_form", clear_on_submit=False):
@@ -159,15 +179,16 @@ def check_password() -> bool:
                 
                 with col_cap1:
                     captcha_label = f"**Keamanan:** Hitung {num1} {op} {num2} = ?"
-                    captcha_input = st.text_input(captcha_label, key="captcha_input", help="Jawab pertanyaan matematika ini.")
+                    captcha_input = st.text_input(captcha_label, key="captcha_input", help="Verifikasi keamanan.")
                 
                 with col_cap2:
                     st.write("") 
                     st.write("") 
                 
+                # Tombol Submit
                 login_submitted = st.form_submit_button("Masuk", type="primary", use_container_width=True)
 
-    # Logika Validasi berjalan HANYA jika tombol submit ditekan
+    # Logika Validasi
     if login_submitted:
         # 1. Validasi Input Kosong
         if not username or not password or not captcha_input:
@@ -205,7 +226,6 @@ def check_password() -> bool:
                 st.session_state.username = user_data['username']
                 st.session_state.user_branch = user_data['cabang']
                 
-                # Bersihkan session captcha
                 if 'captcha_num1' in st.session_state:
                     del st.session_state['captcha_num1']
                 
@@ -219,12 +239,11 @@ def check_password() -> bool:
             st.error(f"Terjadi error saat login: {e}")
             return False
 
-    # Hentikan eksekusi kode di bawahnya jika belum login
     st.stop()
     return False
 
 # -----------------------------
-# Definisi Menu & Icon Lengkap (Untuk Admin)
+# Definisi Menu & Icon Lengkap
 # -----------------------------
 FULL_MENU_ITEMS = {
     "📝 Input Data Pasien": "01_pwh_input.py",
@@ -246,13 +265,24 @@ FULL_ICONS = [
 # Main App
 # -----------------------------
 def main():
-    # Cek Login (akan stop execution jika belum login)
+    # Cek Login
     if not check_password():
         return
 
     # --- KODE DI BAWAH HANYA JALAN JIKA SUDAH LOGIN ---
+    
+    # CSS Reset (Agar background kembali putih saat masuk dashboard)
+    st.markdown(
+        """
+        <style>
+        [data-testid="stAppViewContainer"] {
+            background-color: white; /* Kembali putih di dashboard */
+        }
+        </style>
+        """, 
+        unsafe_allow_html=True
+    )
 
-    # Pesan Selamat Datang
     if "auth_ok" in st.session_state and not st.session_state.get("welcome_message_shown", False):
         st.success(f"Selamat datang, **{st.session_state.username}**!")
         st.session_state.welcome_message_shown = True
@@ -269,7 +299,6 @@ def main():
         current_icons = ["pencil-square"]
         role_label = user_branch
 
-    # Sidebar Menu (Hanya muncul jika sudah login)
     with st.sidebar:
         st.markdown("### 📁 Menu")
         
