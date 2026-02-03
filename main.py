@@ -130,7 +130,7 @@ def check_password() -> bool:
 
     # --- LAYOUT LOGIN DI TENGAH LAYAR ---
     # PERUBAHAN DISINI: Menggunakan rasio [2, 1, 2] agar kolom tengah lebih sempit
-    col1, col2, col3 = st.columns([2, 1, 2])
+    col1, col2, col3 = st.columns([2, 2, 2])
 
     with col2:
         with st.container(border=True):
