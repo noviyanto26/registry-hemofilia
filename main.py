@@ -135,16 +135,19 @@ def check_password() -> bool:
     col1, col2, col3 = st.columns([1, 2, 1])
 
     with col2:
-        with st.container(border=True):
-            st.markdown("<h2 style='text-align: center;'>Login Dashboard<br>Registry Hemofilia</h2>", unsafe_allow_html=True)
+     with st.container(border=True):
+            # --- PERUBAHAN TAMPILAN JUDUL ---
+            st.markdown(
+                """
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <h2 style="margin-bottom: 0px; padding-bottom: 0px;">Login Dashboard</h2>
+                    <p style="font-size: 18px; color: gray; margin-top: 5px;">Registry Hemofilia</p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            
             st.info("🔐 Silakan masukkan username dan password Anda.")
-
-            # --- PERUBAHAN UTAMA: Membungkus input dalam st.form ---
-            with st.form(key="login_form", clear_on_submit=False):
-                username = st.text_input("Username", key="login_username")
-                password = st.text_input("Password", type="password", key="login_password")
-                
-                st.markdown("---")
                 
                 # UI CAPTCHA
                 col_cap1, col_cap2 = st.columns([2, 1])
