@@ -11,7 +11,7 @@ from passlib.context import CryptContext
 # Konfigurasi halaman
 # -----------------------------
 st.set_page_config(
-    page_title="PWH Dashboard",
+    page_title="Registry Hemofilia Dashboard",
     page_icon="🩸",
     layout="wide",
     initial_sidebar_state="expanded",
