@@ -99,6 +99,9 @@ def reset_captcha():
 # -----------------------------
 # Fungsi Login (Dimodifikasi: Main Screen)
 # -----------------------------
+# -----------------------------
+# Fungsi Login (DIPERBAIKI: Menggunakan st.form)
+# -----------------------------
 def check_password() -> bool:
     # Jika sudah login, langsung return True
     if st.session_state.get("auth_ok", False):
@@ -129,33 +132,35 @@ def check_password() -> bool:
         correct_answer = num1 * num2
 
     # --- LAYOUT LOGIN DI TENGAH LAYAR ---
-    # Menggunakan 3 kolom: Kiri (kosong), Tengah (Form), Kanan (kosong)
     col1, col2, col3 = st.columns([1, 2, 1])
 
     with col2:
-        # Menggunakan container dengan border agar lebih rapi
         with st.container(border=True):
             st.markdown("<h2 style='text-align: center;'>🔐 Login Dashboard</h2>", unsafe_allow_html=True)
             st.info("Silakan masukkan username dan password Anda.")
 
-            username = st.text_input("Username", key="login_username")
-            password = st.text_input("Password", type="password", key="login_password")
-            
-            st.markdown("---")
-            # UI CAPTCHA
-            col_cap1, col_cap2 = st.columns([2, 1])
-            with col_cap1:
-                captcha_label = f"**Keamanan:** Hitung {num1} {op} {num2} = ?"
-                captcha_input = st.text_input(captcha_label, key="captcha_input", help="Jawab pertanyaan matematika ini.")
-            
-            with col_cap2:
-                # Spacer agar tombol sejajar
-                st.write("") 
-                st.write("") 
+            # --- PERUBAHAN UTAMA: Membungkus input dalam st.form ---
+            with st.form(key="login_form", clear_on_submit=False):
+                username = st.text_input("Username", key="login_username")
+                password = st.text_input("Password", type="password", key="login_password")
                 
-            login = st.button("Masuk", type="primary", use_container_width=True)
+                st.markdown("---")
+                
+                # UI CAPTCHA
+                col_cap1, col_cap2 = st.columns([2, 1])
+                with col_cap1:
+                    captcha_label = f"**Keamanan:** Hitung {num1} {op} {num2} = ?"
+                    captcha_input = st.text_input(captcha_label, key="captcha_input", help="Jawab pertanyaan matematika ini.")
+                
+                with col_cap2:
+                    st.write("") 
+                    st.write("") 
+                
+                # Menggunakan form_submit_button BUKAN button biasa
+                login_submitted = st.form_submit_button("Masuk", type="primary", use_container_width=True)
 
-    if login:
+    # Logika Validasi berjalan HANYA jika tombol submit ditekan
+    if login_submitted:
         # 1. Validasi Input Kosong
         if not username or not password or not captcha_input:
             st.error("Username, Password, dan CAPTCHA wajib diisi.")
@@ -171,7 +176,7 @@ def check_password() -> bool:
             st.error("CAPTCHA harus berupa angka.")
             return False
 
-        # 3. Validasi Database (Jika CAPTCHA benar)
+        # 3. Validasi Database
         try:
             username_cleaned = username.strip()
             with DB_ENGINE.connect() as conn:
