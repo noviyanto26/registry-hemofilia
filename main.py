@@ -258,7 +258,7 @@ def check_password() -> bool:
 # Definisi Menu & Icon Lengkap
 # -----------------------------
 FULL_MENU_ITEMS = {
-    "📝 Input Data Pasien": "01_pwh_input.py",
+    "📝 Input Data Hemofilia": "01_pwh_input.py",
     "📊 Rekapitulasi per Kelompok Usia": "02_rekap_pwh.py",
     "🚻 Rekapitulasi per Jenis Kelamin": "03_rekap_gender.py",
     "🏥 RS Perawatan Hemofilia": "04_rs_hemofilia.py",
