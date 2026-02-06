@@ -255,7 +255,7 @@ def check_password() -> bool:
 # Menambahkan 01a_tampil_data.py ke daftar menu
 FULL_MENU_ITEMS = {
     "📝 Input Data Hemofilia": "01_pwh_input.py",
-    "📋 Tampil Data Penyandang Hemofilia": "01a_tampil_data.py",  # <--- ITEM BARU
+    "📋 Data Lengkap Pasien": "01a_tampil_data.py",  # <--- ITEM BARU
     "📊 Rekapitulasi per Kelompok Usia": "02_rekap_pwh.py",
     "🚻 Rekapitulasi per Jenis Kelamin": "03_rekap_gender.py",
     "🏥 RS Perawatan Hemofilia": "04_rs_hemofilia.py",
@@ -344,3 +344,6 @@ def main():
 
     st.markdown("---")
     st.caption("© PWH Dashboard — Streamlit")
+
+if __name__ == "__main__":
+    main()
