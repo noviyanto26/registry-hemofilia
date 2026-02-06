@@ -309,7 +309,7 @@ def main():
         # User selain Admin (User Cabang) dapat melihat Input DAN Data Lengkap
         current_menu = {
             "📝 Input Data Hemofilia": "01_pwh_input.py",
-            "📋 Tampil Data": "01a_tampil_data.py"  # <--- DITAMBAHKAN UNTUK USER BIASA
+            "📋 Tampil Data Hemofilia": "01a_tampil_data.py"  # <--- DITAMBAHKAN UNTUK USER BIASA
         }
         current_icons = ["pencil-square", "table"]
         role_label = user_branch
