@@ -263,9 +263,9 @@ FULL_MENU_ITEMS = {
     "🚻 Rekapitulasi per Jenis Kelamin": "03_rekap_gender.py",
     "🏥 RS Perawatan Hemofilia": "04_rs_hemofilia.py",
     "📚 Rekap Pendidikan & Pekerjaan": "05_rekap_pend_pekerjaan.py",
-    "🗺️ Distribusi Pasien per Cabang": "06_distribusi_pasien.py",
+    "🗺️ Distribusi Hemofilia per Cabang": "06_distribusi_pasien.py",
     "🗺️ Rekapitulasi per Provinsi (Berdasarkan Domisili)": "07_rekap_propinsi.py",
-    "🗺️ Distribusi Pasien per RS Penangan": "08_distribusi_rs.py",
+    "🗺️ Distribusi Hemofilia per RS Penangan": "08_distribusi_rs.py",
 }
 
 FULL_ICONS = [
@@ -307,7 +307,7 @@ def main():
         current_icons = FULL_ICONS
         role_label = "Admin (Semua Cabang)"
     else:
-        current_menu = {"📝 Input Data Pasien": "01_pwh_input.py"}
+        current_menu = {"📝 Input Data Hemofilia": "01_pwh_input.py"}
         current_icons = ["pencil-square"]
         role_label = user_branch
 
