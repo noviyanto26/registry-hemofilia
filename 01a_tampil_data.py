@@ -1,6 +1,7 @@
 import os
 import re
 import io
+import math
 import pandas as pd
 import streamlit as st
 from sqlalchemy import create_engine, text
@@ -73,7 +74,7 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
         return pd.read_sql(text(query_filtered), conn, params=params or {})
 
 # ==============================================================================
-# 2. HELPER GENERATE PDF (PERBAIKAN ERROR BYTEARRAY)
+# 2. HELPER GENERATE PDF
 # ==============================================================================
 
 def generate_pdf(row_data, fields):
@@ -105,18 +106,25 @@ def generate_pdf(row_data, fields):
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(1)
         
-    # FIX: Konversi bytearray ke bytes murni
     return bytes(pdf.output())
 
 # ==============================================================================
 # 3. UI & MAIN LOGIC
 # ==============================================================================
 
+# Inisialisasi Session State untuk Halaman
+if 'page_number' not in st.session_state:
+    st.session_state.page_number = 0
+
+def reset_page():
+    st.session_state.page_number = 0
+
 st.title("📋 Data Lengkap Penyandang Hemofilia")
 
 col_search, _ = st.columns([1, 2])
 with col_search:
-    search_term = st.text_input("Cari Data", placeholder="Nama, NIK, atau Kota...")
+    # on_change=reset_page penting agar jika cari nama baru, kembali ke halaman 1
+    search_term = st.text_input("Cari Data", placeholder="Nama, NIK, atau Kota...", on_change=reset_page)
 
 base_query = """
     SELECT
@@ -144,6 +152,7 @@ if search_term:
 base_query += " ORDER BY p.full_name ASC"
 
 try:
+    # 1. Ambil SEMUA data (database handle filtering)
     df = run_df_branch(base_query, params)
     
     mapping = {
@@ -164,34 +173,86 @@ try:
     df_display = df.rename(columns=mapping)
     field_order = list(mapping.values())
 
-    st.write(f"Ditemukan **{len(df_display)}** data.")
+    # ==========================================================================
+    # LOGIKA PAGINATION (20 Data per Halaman)
+    # ==========================================================================
+    ITEMS_PER_PAGE = 20
+    total_data = len(df_display)
+    total_pages = math.ceil(total_data / ITEMS_PER_PAGE)
 
-    for idx, row in df_display.iterrows():
-        with st.expander(f"👤 {row['Nama Lengkap']} | NIK: {row['NIK']} | {row['HMHI Cabang']}"):
+    # Validasi halaman (mencegah error jika data berkurang setelah search)
+    if st.session_state.page_number >= total_pages:
+        st.session_state.page_number = 0
+    
+    # Hitung index start dan end
+    start_idx = st.session_state.page_number * ITEMS_PER_PAGE
+    end_idx = start_idx + ITEMS_PER_PAGE
+    
+    # Slice dataframe
+    df_page = df_display.iloc[start_idx:end_idx]
+
+    # Tampilkan Info Data
+    st.info(f"Ditemukan **{total_data}** data. Menampilkan halaman **{st.session_state.page_number + 1}** dari **{total_pages}**.")
+
+    # --- Tombol Navigasi Atas ---
+    col_prev, col_info, col_next = st.columns([1, 4, 1])
+    
+    with col_prev:
+        if st.button("⬅️ Sebelumnya", disabled=(st.session_state.page_number == 0), key="prev_top"):
+            st.session_state.page_number -= 1
+            st.rerun()
             
-            c1, c2 = st.columns([1, 4])
-            with c1:
-                # Memanggil fungsi PDF yang sudah diperbaiki
-                pdf_data = generate_pdf(row, field_order)
-                st.download_button(
-                    label="📥 Download PDF",
-                    data=pdf_data,
-                    file_name=f"PWH_{row['Nama Lengkap'].replace(' ', '_')}.pdf",
-                    mime="application/pdf",
-                    key=f"pdf_{idx}"
-                )
-            
-            st.markdown("---")
-            for field in field_order:
-                val = row.get(field, "-")
-                if field == "Usia" and val != "-":
-                    try: val = f"{int(float(val))} tahun"
-                    except: pass
+    with col_next:
+        if st.button("Selanjutnya ➡️", disabled=(end_idx >= total_data), key="next_top"):
+            st.session_state.page_number += 1
+            st.rerun()
+
+    st.markdown("---")
+
+    # ==========================================================================
+    # RENDER DATA PER HALAMAN
+    # ==========================================================================
+    if df_page.empty:
+        st.warning("Data tidak ditemukan.")
+    else:
+        # Loop hanya untuk data di halaman ini
+        for idx, row in df_page.iterrows():
+            with st.expander(f"👤 {row['Nama Lengkap']} | NIK: {row['NIK']} | {row['HMHI Cabang']}"):
                 
-                L, R = st.columns([1, 2])
-                L.markdown(f"**{field}**")
-                R.markdown(f": {val}")
+                c1, c2 = st.columns([1, 4])
+                with c1:
+                    pdf_data = generate_pdf(row, field_order)
+                    st.download_button(
+                        label="📥 Download PDF",
+                        data=pdf_data,
+                        file_name=f"PWH_{row['Nama Lengkap'].replace(' ', '_')}.pdf",
+                        mime="application/pdf",
+                        key=f"pdf_{idx}"
+                    )
+                
+                st.markdown("---")
+                for field in field_order:
+                    val = row.get(field, "-")
+                    if field == "Usia" and val != "-":
+                        try: val = f"{int(float(val))} tahun"
+                        except: pass
+                    
+                    L, R = st.columns([1, 2])
+                    L.markdown(f"**{field}**")
+                    R.markdown(f": {val}")
+
+    # --- Tombol Navigasi Bawah (Opsional, agar mudah pindah jika scroll di bawah) ---
+    if total_pages > 1:
+        st.markdown("---")
+        c_prev_btm, c_spacer, c_next_btm = st.columns([1, 4, 1])
+        with c_prev_btm:
+            if st.button("⬅️ Sebelumnya ", disabled=(st.session_state.page_number == 0), key="prev_btm"):
+                st.session_state.page_number -= 1
+                st.rerun()
+        with c_next_btm:
+            if st.button("Selanjutnya ➡️ ", disabled=(end_idx >= total_data), key="next_btm"):
+                st.session_state.page_number += 1
+                st.rerun()
 
 except Exception as e:
     st.error(f"Gagal memuat data: {e}")
-
