@@ -72,11 +72,13 @@ else:
     st.stop()
 
 # -----------------------------
-# Keamanan Password
+# Keamanan Password (PERBAIKAN DISINI)
 # -----------------------------
+# Kita tambahkan pbkdf2_sha256 ke schemes agar dikenali.
+# Kita tetap biarkan bcrypt ada di list agar password lama (jika ada) tetap bisa login.
 pwd_context = CryptContext(
-    schemes=["bcrypt_sha256", "bcrypt"],
-    default="bcrypt_sha256",
+    schemes=["pbkdf2_sha256", "bcrypt_sha256", "bcrypt"],
+    default="pbkdf2_sha256",
     deprecated="auto"
 )
 
@@ -104,7 +106,7 @@ def check_password() -> bool:
     if st.session_state.get("auth_ok", False):
         return True
 
-# --- CSS CUSTOM UNTUK TAMPILAN LOGIN (DIPERKUAT) ---
+    # --- CSS CUSTOM UNTUK TAMPILAN LOGIN (DIPERKUAT) ---
     login_style = """
         <style>
             /* 1. Menyembunyikan Sidebar saat Login */
@@ -112,28 +114,26 @@ def check_password() -> bool:
             [data-testid="stSidebarCollapsedControl"] {display: none;}
             
             /* 2. BACKGROUND HALAMAN UTAMA (ABU-ABU) */
-            /* Menggunakan !important untuk memaksa warna berubah */
             .stApp, [data-testid="stAppViewContainer"] {
                 background-color: #f0f2f6 !important;
             }
             
             /* 3. BACKGROUND CONTAINER / KOTAK LOGIN (PUTIH) */
-            /* Target wrapper container yang memiliki border */
             [data-testid="stVerticalBlockBorderWrapper"] {
                 background-color: #ffffff !important;
                 border-radius: 15px !important;
-                border: 1px solid #e0e0e0 !important; /* Border halus */
-                box-shadow: 0 4px 20px rgba(0,0,0,0.1) !important; /* Bayangan lebih nyata */
+                border: 1px solid #e0e0e0 !important;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.1) !important;
                 padding: 30px !important;
             }
             
-            /* 4. MENGHILANGKAN PADDING BAWAAN AGAR POSISI LEBIH PAS */
+            /* 4. MENGHILANGKAN PADDING BAWAAN */
             .block-container {
                 padding-top: 5rem !important;
                 max-width: 100% !important;
             }
             
-            /* Opsional: Membuat input field sedikit lebih cantik */
+            /* Opsional: Input field styling */
             div[data-baseweb="input"] > div {
                 background-color: #f8f9fa !important;
                 border-radius: 8px !important;
@@ -158,7 +158,6 @@ def check_password() -> bool:
         correct_answer = num1 * num2
 
     # --- LAYOUT LOGIN DI TENGAH LAYAR ---
-    # Menggunakan rasio 1:1:1 (Setara dengan 2:2:2) agar proporsional
     col1, col2, col3 = st.columns([1, 1, 1])
 
     with col2:
@@ -228,7 +227,10 @@ def check_password() -> bool:
                 reset_captcha() 
                 return False
 
-            password_to_check = password[:72]
+            # PERBAIKAN: Hapus slicing password[:72]
+            # PBKDF2 tidak memiliki batasan 72 byte seperti bcrypt, 
+            # jadi kita kirim password utuh.
+            password_to_check = password
 
             # Verifikasi hash
             if pwd_context.verify(password_to_check, user_data['hashed_password']):
