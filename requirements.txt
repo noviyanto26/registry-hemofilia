@@ -8,6 +8,7 @@ psycopg2-binary>=2.9
 xlsxwriter>=3.2
 openpyxl>=3.1
 matplotlib>=3.8
+fpdf2
 
 # UI Components
 streamlit-option-menu>=0.3
