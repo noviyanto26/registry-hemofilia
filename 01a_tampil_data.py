@@ -238,18 +238,23 @@ try:
                     if pd.isna(val) or val == "":
                         val_str = "-"
                     else:
-                        val_str = str(val)
+                        # --- PERUBAHAN DI SINI: Formatting khusus Usia ---
+                        if field == "Usia":
+                            try:
+                                # Konversi ke float dulu (jaga-jaga string '44.0'), lalu ke int
+                                val_int = int(float(val))
+                                val_str = f"{val_int} tahun"
+                            except Exception:
+                                val_str = f"{val} tahun"
+                        else:
+                            val_str = str(val)
                     
-                    # Layout: Label di kiri (Bold), Nilai di kanan
-                    # Menggunakan columns agar rapi
+                    # Layout: Label di kiri, Nilai di kanan
                     c_label, c_value = st.columns([1, 2])
                     with c_label:
                         st.markdown(f"**{field}**")
                     with c_value:
                         st.markdown(f": {val_str}")
-                    
-                    # Garis tipis pemisah antar field (opsional, bisa dihapus jika terlalu ramai)
-                    # st.markdown("<hr style='margin: 2px 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
 
 except Exception as e:
     st.error(f"Terjadi kesalahan saat memuat data: {e}")
