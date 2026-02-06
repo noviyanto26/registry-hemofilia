@@ -72,10 +72,8 @@ else:
     st.stop()
 
 # -----------------------------
-# Keamanan Password (PERBAIKAN DISINI)
+# Keamanan Password
 # -----------------------------
-# Kita tambahkan pbkdf2_sha256 ke schemes agar dikenali.
-# Kita tetap biarkan bcrypt ada di list agar password lama (jika ada) tetap bisa login.
 pwd_context = CryptContext(
     schemes=["pbkdf2_sha256", "bcrypt_sha256", "bcrypt"],
     default="pbkdf2_sha256",
@@ -99,14 +97,14 @@ def reset_captcha():
     st.session_state.captcha_op = random.choice(['+', '-', '*'])
 
 # -----------------------------
-# Fungsi Login (DENGAN WARNA BACKGROUND & CARD)
+# Fungsi Login
 # -----------------------------
 def check_password() -> bool:
     # Jika sudah login, langsung return True
     if st.session_state.get("auth_ok", False):
         return True
 
-    # --- CSS CUSTOM UNTUK TAMPILAN LOGIN (DIPERKUAT) ---
+    # --- CSS CUSTOM UNTUK TAMPILAN LOGIN ---
     login_style = """
         <style>
             /* 1. Menyembunyikan Sidebar saat Login */
@@ -227,9 +225,6 @@ def check_password() -> bool:
                 reset_captcha() 
                 return False
 
-            # PERBAIKAN: Hapus slicing password[:72]
-            # PBKDF2 tidak memiliki batasan 72 byte seperti bcrypt, 
-            # jadi kita kirim password utuh.
             password_to_check = password
 
             # Verifikasi hash
@@ -257,8 +252,10 @@ def check_password() -> bool:
 # -----------------------------
 # Definisi Menu & Icon Lengkap
 # -----------------------------
+# Menambahkan 01a_tampil_data.py ke daftar menu
 FULL_MENU_ITEMS = {
     "📝 Input Data Hemofilia": "01_pwh_input.py",
+    "📋 Tampil Data Penyandang Hemofilia": "01a_tampil_data.py",  # <--- ITEM BARU
     "📊 Rekapitulasi per Kelompok Usia": "02_rekap_pwh.py",
     "🚻 Rekapitulasi per Jenis Kelamin": "03_rekap_gender.py",
     "🏥 RS Perawatan Hemofilia": "04_rs_hemofilia.py",
@@ -268,8 +265,9 @@ FULL_MENU_ITEMS = {
     "🗺️ Distribusi Hemofilia per RS Penangan": "08_distribusi_rs.py",
 }
 
+# Menambahkan icon 'table' untuk menu baru (posisi ke-2)
 FULL_ICONS = [
-    "pencil-square", "bar-chart", "person-arms-up", "hospital", 
+    "pencil-square", "table", "bar-chart", "person-arms-up", "hospital", 
     "book", "map", "geo-alt", "building"
 ]
 
@@ -299,16 +297,21 @@ def main():
         st.success(f"Selamat datang, **{st.session_state.username}**!")
         st.session_state.welcome_message_shown = True
 
-    # --- LOGIKA HAK AKSES MENU ---
+    # --- LOGIKA HAK AKSES MENU (DIPERBARUI) ---
     user_branch = st.session_state.get('user_branch', 'N/A')
     
     if user_branch == 'ALL':
+        # Admin dapat melihat semua menu
         current_menu = FULL_MENU_ITEMS
         current_icons = FULL_ICONS
         role_label = "Admin (Semua Cabang)"
     else:
-        current_menu = {"📝 Input Data Hemofilia": "01_pwh_input.py"}
-        current_icons = ["pencil-square"]
+        # User selain Admin (User Cabang) dapat melihat Input DAN Data Lengkap
+        current_menu = {
+            "📝 Input Data Hemofilia": "01_pwh_input.py",
+            "📋 Data Lengkap Pasien": "01a_tampil_data.py"  # <--- DITAMBAHKAN UNTUK USER BIASA
+        }
+        current_icons = ["pencil-square", "table"]
         role_label = user_branch
 
     with st.sidebar:
@@ -342,5 +345,4 @@ def main():
     st.markdown("---")
     st.caption("© PWH Dashboard — Streamlit")
 
-if __name__ == "__main__":
-    main()
+if __
