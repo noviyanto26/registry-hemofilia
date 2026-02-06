@@ -79,36 +79,37 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
 
 def process_patient_data(df_raw):
     """
-    Mengubah DataFrame raw (banyak baris per pasien) menjadi list of dicts 
-    (1 dict per pasien) dengan kolom 'ke 1', 'ke 2', dst.
+    Mengubah DataFrame raw menjadi list of dicts.
+    Diagnosis dan Inhibitor hanya diambil data pertamanya (STATIS).
+    Kontak dan Treatment diambil semua datanya (DINAMIS).
     """
     if df_raw.empty:
         return []
 
-    # 1. Mapping Kolom Statis (Data Diri)
-    # Kolom ini dianggap hanya ada 1 nilai per pasien
+    # 1. Mapping Kolom Statis (Data Diri + Diagnosis + Inhibitor)
+    # Data ini hanya akan muncul SEKALI (ambil baris pertama)
     static_mapping = {
+        # Data Diri
         "full_name": "Nama Lengkap", "nik": "NIK", "birth_place": "Tempat Lahir",
         "birth_date": "Tanggal Lahir", "age_years": "Usia", "blood_group": "Gol Darah",
         "address": "Alamat", "rhesus": "Rhesus", "occupation": "Pekerjaan",
         "education": "Pendidikan Terakhir", "phone": "No Telp", "village": "Desa/Kelurahan",
         "district": "Kecamatan", "city": "Kota/Kabupaten", "province": "Propinsi",
-        "gender": "Jenis Kelamin", "cabang": "HMHI Cabang"
+        "gender": "Jenis Kelamin", "cabang": "HMHI Cabang",
+        
+        # Diagnosis (Dipindah ke sini agar cuma 1 data)
+        "hemo_type": "Jenis Hemofilia",
+        "severity": "Kategori Hemofilia",
+        "diagnosed_on": "Tanggal Diagnosis",
+        
+        # Inhibitor (Dipindah ke sini agar cuma 1 data)
+        "factor": "Inhibitor",
+        "titer_bu": "Titer BU",
+        "measured_on": "Tanggal Ukur Inhibitor"
     }
 
-    # 2. Definisi Grup Data Berulang
-    # Setiap grup berisi kolom database dan mapping nama tampilannya
+    # 2. Definisi Grup Data Berulang (Hanya Treatment dan Kontak)
     dynamic_groups = [
-        {
-            "name": "Diagnosis",
-            "cols": ["hemo_type", "severity", "diagnosed_on"],
-            "labels": {"hemo_type": "Jenis Hemofilia", "severity": "Kategori Hemofilia", "diagnosed_on": "Tanggal Diagnosis"}
-        },
-        {
-            "name": "Inhibitor",
-            "cols": ["factor", "titer_bu", "measured_on"],
-            "labels": {"factor": "Inhibitor", "titer_bu": "Titer BU", "measured_on": "Tanggal Ukur Inhibitor"}
-        },
         {
             "name": "Treatment",
             "cols": ["name_hospital", "doctor_in_charge", "city_hospital", "province_hospital", "treatment_type", "frequency", "dose", "product"],
@@ -128,34 +129,35 @@ def process_patient_data(df_raw):
 
     processed_list = []
     
-    # Group by ID Pasien (pastikan query SQL mengambil p.id)
+    # Group by ID Pasien
     grouped = df_raw.groupby('patient_id')
 
     for pid, group in grouped:
         row_dict = {}
         
-        # Ambil data statis dari baris pertama grup
+        # A. Ambil Data Statis (Data Diri, Diagnosis, Inhibitor)
+        # Menggunakan iloc[0] menjamin hanya data PERTAMA yang diambil
         first_row = group.iloc[0]
+        
         for db_col, label in static_mapping.items():
             val = first_row.get(db_col)
+            
             # Formatting khusus Usia
             if db_col == "age_years" and pd.notna(val):
                 try: val = f"{int(float(val))} tahun"
                 except: pass
+                
             row_dict[label] = val if pd.notna(val) else "-"
 
-        # Proses data dinamis (loop setiap grup konfigurasi)
+        # B. Proses Data Dinamis (Treatment & Kontak)
         for grp in dynamic_groups:
             # Ambil hanya kolom terkait grup ini
             subset = group[grp["cols"]].drop_duplicates()
-            # Hapus baris yang semua kolomnya kosong/NaN
             subset = subset.dropna(how='all')
             
-            # Loop setiap baris data unik di grup tersebut
             for idx, ( _, sub_row) in enumerate(subset.iterrows()):
-                suffix = f" ke {idx + 1}" if len(subset) > 1 else "" # Tambah " ke 1" hanya jika data > 1 baris? 
-                # Request user: "Nama Kontak Darurat ke 1" (eksplisit pakai angka)
-                suffix = f" ke {idx + 1}" 
+                # Tambahkan suffix " ke 1", " ke 2", dst
+                suffix = f" ke {idx + 1}"
                 
                 for col_name in grp["cols"]:
                     label_base = grp["labels"][col_name]
@@ -187,21 +189,18 @@ def generate_pdf(row_dict):
     
     pdf.set_text_color(0, 0, 0)
     
-    # Loop semua key yang ada di dictionary hasil proses
     for key, val in row_dict.items():
         pdf.set_font("helvetica", 'B', 10)
         # Nama Field
         pdf.cell(75, 8, f"{key}", border=0)
         
         pdf.set_font("helvetica", size=10)
-        # Nilai Field (Multi cell untuk teks panjang)
-        # Gunakan border=0, lalu gambar garis manual agar rapi
+        # Nilai Field
         x_start = pdf.get_x()
         y_start = pdf.get_y()
         
         pdf.multi_cell(0, 8, f": {val}", border=0)
         
-        # Garis tipis pemisah
         pdf.set_draw_color(230, 230, 230)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(1)
@@ -212,7 +211,6 @@ def generate_pdf(row_dict):
 # 4. UI & MAIN LOGIC
 # ==============================================================================
 
-# Inisialisasi Session State untuk Halaman
 if 'page_number' not in st.session_state:
     st.session_state.page_number = 0
 
@@ -225,7 +223,7 @@ col_search, _ = st.columns([1, 2])
 with col_search:
     search_term = st.text_input("Cari Data", placeholder="Nama, NIK, atau Kota...", on_change=reset_page)
 
-# QUERY SQL: Menambahkan p.id untuk grouping
+# QUERY SQL
 base_query = """
     SELECT
         p.id AS patient_id,
@@ -256,23 +254,20 @@ try:
     # 1. Ambil Raw Data
     df_raw = run_df_branch(base_query, params)
     
-    # 2. Proses Flattening (Merge baris duplikat jadi kolom "ke X")
+    # 2. Proses Flattening
     data_list = process_patient_data(df_raw)
     
     total_data = len(data_list)
     ITEMS_PER_PAGE = 20
     total_pages = math.ceil(total_data / ITEMS_PER_PAGE) if total_data > 0 else 1
 
-    # Validasi halaman
     if st.session_state.page_number >= total_pages:
         st.session_state.page_number = 0
     
-    # Slice Data untuk Pagination
     start_idx = st.session_state.page_number * ITEMS_PER_PAGE
     end_idx = start_idx + ITEMS_PER_PAGE
     page_data = data_list[start_idx:end_idx]
 
-    # Info & Navigasi
     st.info(f"Ditemukan **{total_data}** pasien unik. Menampilkan halaman **{st.session_state.page_number + 1}** dari **{total_pages}**.")
 
     col_prev, col_spacer, col_next = st.columns([1, 4, 1])
@@ -287,12 +282,10 @@ try:
 
     st.markdown("---")
 
-    # Render Data
     if not page_data:
         st.warning("Data tidak ditemukan.")
     else:
         for idx, row_dict in enumerate(page_data):
-            # Ambil info utama untuk judul expander
             nama = row_dict.get("Nama Lengkap", "Tanpa Nama")
             nik = row_dict.get("NIK", "-")
             cabang = row_dict.get("HMHI Cabang", "-")
@@ -311,13 +304,11 @@ try:
                 
                 st.markdown("---")
                 
-                # Tampilkan semua field secara dinamis
                 for key, val in row_dict.items():
                     L, R = st.columns([1, 2])
                     L.markdown(f"**{key}**")
                     R.markdown(f": {val}")
 
-    # Navigasi Bawah
     if total_pages > 1:
         st.markdown("---")
         cp, cs, cn = st.columns([1, 4, 1])
