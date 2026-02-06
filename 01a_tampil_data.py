@@ -112,11 +112,11 @@ def generate_pdf(row_data, fields):
 # 3. UI & MAIN LOGIC
 # ==============================================================================
 
-st.title("📋 Data Lengkap Pasien")
+st.title("📋 Data Lengkap Penyandang Hemofilia")
 
 col_search, _ = st.columns([1, 2])
 with col_search:
-    search_term = st.text_input("Cari Pasien", placeholder="Nama, NIK, atau Kota...")
+    search_term = st.text_input("Cari Data", placeholder="Nama, NIK, atau Kota...")
 
 base_query = """
     SELECT
@@ -194,3 +194,4 @@ try:
 
 except Exception as e:
     st.error(f"Gagal memuat data: {e}")
+
