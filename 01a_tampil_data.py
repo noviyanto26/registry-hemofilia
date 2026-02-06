@@ -12,9 +12,7 @@ from fpdf import FPDF
 # ==============================================================================
 
 def _resolve_db_url() -> str:
-    """Mengambil URL database dari secrets (Streamlit Cloud) atau env."""
     try:
-        # Coba format secrets Streamlit Cloud
         sec = st.secrets.get("DATABASE_URL") or st.secrets.get("secrets", {}).get("DATABASE_URL", "")
         if sec: return sec
     except Exception: pass
@@ -27,7 +25,6 @@ def _resolve_db_url() -> str:
 def get_engine(dsn: str) -> Engine:
     return create_engine(dsn, pool_pre_ping=True)
 
-# Inisialisasi Engine
 DSN = _resolve_db_url()
 try:
     engine = get_engine(DSN)
@@ -38,7 +35,6 @@ except Exception as e:
     st.stop()
 
 def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
-    """Menjalankan query dengan filter cabang otomatis sesuai user login."""
     current_user_branch = st.session_state.get("user_branch", None)
     query_filtered = query.strip()
     query_upper = query_filtered.upper()
@@ -46,7 +42,6 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
     if current_user_branch and current_user_branch != "ALL" and "PWH.PATIENTS" in query_upper:
         params = params or {}
         params["branch"] = current_user_branch
-        
         alias_prefix = None
         if "JOIN PWH.PATIENTS P" in query_upper or "FROM PWH.PATIENTS P" in query_upper:
             alias_prefix = "p."
@@ -78,18 +73,17 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
         return pd.read_sql(text(query_filtered), conn, params=params or {})
 
 # ==============================================================================
-# 2. HELPER GENERATE PDF
+# 2. HELPER GENERATE PDF (PERBAIKAN ERROR BYTEARRAY)
 # ==============================================================================
 
 def generate_pdf(row_data, fields):
-    """Membuat PDF di dalam memori (BytesIO) agar aman untuk cloud deployment."""
     pdf = FPDF()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
     
     # Header
     pdf.set_font("helvetica", 'B', 16)
-    pdf.set_text_color(180, 0, 0) # Merah darah
+    pdf.set_text_color(180, 0, 0)
     pdf.cell(0, 10, "KARTU DATA PENYANDANG HEMOFILIA", ln=True, align='C')
     pdf.set_font("helvetica", 'I', 9)
     pdf.set_text_color(100, 100, 100)
@@ -99,25 +93,20 @@ def generate_pdf(row_data, fields):
     pdf.set_text_color(0, 0, 0)
     for field in fields:
         val = row_data.get(field, "-")
-        # Format Usia di PDF
         if field == "Usia" and val != "-":
             try: val = f"{int(float(val))} tahun"
             except: pass
         
-        # Cetak Label (Bold)
         pdf.set_font("helvetica", 'B', 10)
         pdf.cell(65, 8, f"{field}", border=0)
-        
-        # Cetak Nilai
         pdf.set_font("helvetica", size=10)
         pdf.multi_cell(0, 8, f": {val}", border=0)
-        
-        # Garis tipis pemisah
         pdf.set_draw_color(230, 230, 230)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(1)
         
-    return pdf.output()
+    # FIX: Konversi bytearray ke bytes murni
+    return bytes(pdf.output())
 
 # ==============================================================================
 # 3. UI & MAIN LOGIC
@@ -125,12 +114,10 @@ def generate_pdf(row_data, fields):
 
 st.title("📋 Data Lengkap Pasien")
 
-# Filter pencarian
 col_search, _ = st.columns([1, 2])
 with col_search:
     search_term = st.text_input("Cari Pasien", placeholder="Nama, NIK, atau Kota...")
 
-# SQL Query
 base_query = """
     SELECT
         p.full_name, p.nik, p.birth_place, p.birth_date,
@@ -159,7 +146,6 @@ base_query += " ORDER BY p.full_name ASC"
 try:
     df = run_df_branch(base_query, params)
     
-    # Mapping Nama Kolom
     mapping = {
         "full_name": "Nama Lengkap", "nik": "NIK", "birth_place": "Tempat Lahir",
         "birth_date": "Tanggal Lahir", "age_years": "Usia", "blood_group": "Gol Darah",
@@ -183,31 +169,25 @@ try:
     for idx, row in df_display.iterrows():
         with st.expander(f"👤 {row['Nama Lengkap']} | NIK: {row['NIK']} | {row['HMHI Cabang']}"):
             
-            # Baris tombol aksi
             c1, c2 = st.columns([1, 4])
             with c1:
-                # Tombol Download PDF
-                pdf_bytes = generate_pdf(row, field_order)
+                # Memanggil fungsi PDF yang sudah diperbaiki
+                pdf_data = generate_pdf(row, field_order)
                 st.download_button(
                     label="📥 Download PDF",
-                    data=pdf_bytes,
+                    data=pdf_data,
                     file_name=f"PWH_{row['Nama Lengkap'].replace(' ', '_')}.pdf",
                     mime="application/pdf",
                     key=f"pdf_{idx}"
                 )
             
             st.markdown("---")
-            
-            # Tampilan Data Baris per Baris
             for field in field_order:
                 val = row.get(field, "-")
-                
-                # Format Usia di UI
                 if field == "Usia" and val != "-":
                     try: val = f"{int(float(val))} tahun"
                     except: pass
                 
-                # Layout Kolom Label dan Value
                 L, R = st.columns([1, 2])
                 L.markdown(f"**{field}**")
                 R.markdown(f": {val}")
