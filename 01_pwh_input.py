@@ -1215,10 +1215,10 @@ if tab_pat:
             full_name = st.text_input("Nama Lengkap*", value=pat_data.get('full_name', ''))
 
             c1, c2, c3 = st.columns(3)
-            with c1: birth_place = st.text_input("Tempat Lahir", value=pat_data.get('birth_place', ''))
+            with c1: birth_place = st.text_input("Tempat Lahir*", value=pat_data.get('birth_place', ''))
             with c2:
                 birth_date_val = pd.to_datetime(pat_data.get('birth_date')).date() if pd.notna(pat_data.get('birth_date')) else None
-                birth_date = st.date_input("Tanggal Lahir", value=birth_date_val, format="YYYY-MM-DD", min_value=date(1920, 1, 1), max_value=date.today())
+                birth_date = st.date_input("Tanggal Lahir*", value=birth_date_val, format="YYYY-MM-DD", min_value=date(1920, 1, 1), max_value=date.today())
             with c3:
                 nik = st.text_input("NIK*", value=pat_data.get('nik', ''), max_chars=16)
 
