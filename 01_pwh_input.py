@@ -1355,6 +1355,14 @@ if tab_pat:
             
             if not (full_name or "").strip():
                 st.error("Nama Lengkap wajib diisi.")
+            
+            # === TAMBAHAN VALIDASI DI SINI ===
+            elif not (birth_place or "").strip():
+                st.error("Tempat Lahir wajib diisi.")
+            elif not birth_date:
+                st.error("Tanggal Lahir wajib diisi.")
+            # =================================
+            
             elif not nik_cleaned:
                 st.error("NIK wajib diisi.")
             elif len(nik_cleaned) != 16:
