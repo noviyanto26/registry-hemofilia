@@ -1583,10 +1583,21 @@ if tab_diag:
         )
 
         with st.form("diag::form", clear_on_submit=False):
-            hemo_type_idx = get_safe_index(HEMO_TYPES, diag_data.get('hemo_type'))
-            hemo_type = st.selectbox("Tipe Hemofilia", HEMO_TYPES, index=hemo_type_idx)
-            severity_idx = get_safe_index(SEVERITY_CHOICES, diag_data.get('severity'))
-            severity = st.selectbox("Kategori", SEVERITY_CHOICES, index=severity_idx)
+            # --- UPDATE: Tambahkan opsi kosong di awal agar user 'terpaksa' memilih ---
+            # Kita buat copy list agar list global tidak terubah
+            hemo_opts = [""] + [h for h in HEMO_TYPES if h]
+            sev_opts = [""] + [s for s in SEVERITY_CHOICES if s]
+
+            # Cari index yang aman (handle jika value existing tidak ada di list baru)
+            curr_hemo = diag_data.get('hemo_type', '')
+            curr_sev = diag_data.get('severity', '')
+            
+            h_idx = get_safe_index(hemo_opts, curr_hemo)
+            s_idx = get_safe_index(sev_opts, curr_sev)
+
+            hemo_type = st.selectbox("Tipe Hemofilia*", hemo_opts, index=h_idx)
+            severity = st.selectbox("Kategori*", sev_opts, index=s_idx)
+            
             diagnosed_on_val = pd.to_datetime(diag_data.get('diagnosed_on')).date() if pd.notna(diag_data.get('diagnosed_on')) else None
             diagnosed_on = st.date_input("Tanggal Diagnosis", value=diagnosed_on_val, format="YYYY-MM-DD", min_value=date(1920, 1, 1))
             source = st.text_input("Sumber (opsional)", value=diag_data.get('source', ''))
@@ -1595,20 +1606,55 @@ if tab_diag:
             sdiag = st.form_submit_button(f"💾 {sdiag_label}", type="primary")
 
         if sdiag:
-            if diag_data:
-                payload = {"hemo_type": hemo_type, "severity": severity, "diagnosed_on": diagnosed_on, "source": (source or "").strip() or None}
-                update_diagnosis(diag_data['id'], payload)
-                st.success("Diagnosis diperbarui.")
-                clear_session_state('diag_to_edit')
-                # st.query_params["tab"] = "Diagnosis" # Dihapus
-                st.rerun()
-            elif pid_diag:
-                insert_diagnosis(int(pid_diag), hemo_type, severity, diagnosed_on, source)
-                st.success("Diagnosis disimpan/diperbarui.")
-                # st.query_params["tab"] = "Diagnosis" # Dihapus
-                st.rerun()
+            # --- VALIDASI 1: Mandatory Fields ---
+            if not hemo_type:
+                st.error("Tipe Hemofilia wajib dipilih.")
+            elif not severity:
+                st.error("Kategori wajib dipilih.")
             else:
-                if not diag_data: st.warning("Silakan pilih pasien terlebih dahulu.")
+                # --- VALIDASI 2: Unique Check (Hanya boleh 1 tipe per pasien) ---
+                if diag_data:
+                    # LOGIKA UPDATE
+                    # Cek apakah tipe ini sudah dipakai oleh record LAIN milik pasien yang sama
+                    q_check = """
+                        SELECT id FROM pwh.hemo_diagnoses 
+                        WHERE patient_id = :pid AND hemo_type = :htype AND id != :current_id
+                    """
+                    exists = run_df_branch(q_check, {
+                        "pid": diag_data['patient_id'], 
+                        "htype": hemo_type, 
+                        "current_id": diag_data['id']
+                    })
+                    
+                    if not exists.empty:
+                        st.error(f"Gagal Update: Pasien ini sudah memiliki data diagnosis untuk tipe '{hemo_type}'. Data tidak boleh ganda.")
+                    else:
+                        payload = {"hemo_type": hemo_type, "severity": severity, "diagnosed_on": diagnosed_on, "source": (source or "").strip() or None}
+                        update_diagnosis(diag_data['id'], payload)
+                        st.success("Diagnosis diperbarui.")
+                        clear_session_state('diag_to_edit')
+                        st.rerun()
+
+                elif pid_diag:
+                    # LOGIKA INSERT BARU
+                    # Cek apakah pasien sudah punya tipe ini
+                    q_check = """
+                        SELECT id FROM pwh.hemo_diagnoses 
+                        WHERE patient_id = :pid AND hemo_type = :htype
+                    """
+                    exists = run_df_branch(q_check, {
+                        "pid": int(pid_diag), 
+                        "htype": hemo_type
+                    })
+
+                    if not exists.empty:
+                        st.error(f"Gagal Simpan: Pasien ini sudah memiliki diagnosis tipe '{hemo_type}'. Data hanya bisa diinput sekali.")
+                    else:
+                        insert_diagnosis(int(pid_diag), hemo_type, severity, diagnosed_on, source)
+                        st.success("Diagnosis disimpan.")
+                        st.rerun()
+                else:
+                    if not diag_data: st.warning("Silakan pilih pasien terlebih dahulu.")
 
         st.markdown("---")
         st.markdown("### 📋 Data Diagnosis Terbaru")
@@ -1628,19 +1674,11 @@ if tab_diag:
                 """
                 results_df = run_df_branch(q, {"name": f"%{search_name_diag}%"})
 
-                # ==============================================================
-                # --- START PERUBAHAN LOGIKA DI SINI ---
-                # ==============================================================
                 if results_df.empty:
                     st.warning("Riwayat diagnosis tidak ditemukan untuk pasien dengan nama tersebut (di cabang Anda).")
                 else:
-                    # SELALU tampilkan selectbox jika 1 ATAU LEBIH data ditemukan
                     st.info(f"Ditemukan {len(results_df)} riwayat diagnosis. Silakan pilih satu untuk diedit/dihapus.")
                     st.session_state.diag_matches = results_df
-                    # JANGAN st.rerun() di sini
-                # ==============================================================
-                # --- END PERUBAHAN LOGIKA ---
-                # ==============================================================
                     
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
