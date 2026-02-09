@@ -234,7 +234,7 @@ if not grouped_missing.empty:
 st.subheader(f"📋 Data Terpetakan ({len(grouped_valid)} Kota)")
 if not grouped_valid.empty:
     # Tambahkan kolom radius dan label untuk visualisasi Map
-    grouped_valid["radius"] = 8000 
+    grouped_valid["radius"] = 3000 
     grouped_valid["label"] = grouped_valid.apply(lambda r: f"{r['Kota']} : {int(r['Jumlah Pasien'])}", axis=1)
     
     # MODIFIKASI 2: Membuat Tabel Display dengan Baris TOTAL
