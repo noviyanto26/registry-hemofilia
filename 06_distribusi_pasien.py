@@ -171,7 +171,9 @@ grouped_valid_for_map = grouped[valid_mask].copy()
 
 # Tambahkan properti visual map
 if not grouped_valid_for_map.empty:
-    grouped_valid_for_map["radius"] = (grouped_valid_for_map["Jumlah Pasien"] ** 0.5) * 2500 
+    # --- PERUBAHAN DI SINI ---
+    # Menggunakan nilai tetap (misal 8000 meter) agar titik terlihat kecil dan seragam.
+    grouped_valid_for_map["radius"] = 8000 
     grouped_valid_for_map["label"] = grouped_valid_for_map.apply(lambda r: f"{r['Cabang HMHI']} : {int(r['Jumlah Pasien'])}", axis=1)
 
 # =========================
@@ -181,11 +183,11 @@ total_pasien_real = df_table["Jumlah Pasien"].sum()
 
 st.subheader(f"📋 Rekap Per Cabang HMHI (Total Pasien: {total_pasien_real})")
 
-# --- PERUBAHAN: Menambahkan 'lat' dan 'lon' ke display_cols ---
+# Menambahkan 'lat' dan 'lon' ke display_cols
 display_cols = ["Cabang HMHI", "Jumlah Pasien", "lat", "lon"]
 df_to_show = df_table[display_cols].sort_values("Jumlah Pasien", ascending=False).copy()
 
-# --- PERUBAHAN: Menambahkan lat/lon kosong untuk baris TOTAL ---
+# Menambahkan lat/lon kosong untuk baris TOTAL
 row_total = pd.DataFrame([{
     "Cabang HMHI": "TOTAL", 
     "Jumlah Pasien": total_pasien_real,
@@ -194,7 +196,7 @@ row_total = pd.DataFrame([{
 }])
 df_to_show = pd.concat([df_to_show, row_total], ignore_index=True)
 
-# Tampilkan dataframe (lat/lon akan muncul)
+# Tampilkan dataframe
 st.dataframe(df_to_show, use_container_width=True, hide_index=True)
 
 # Info jika ada data tanpa koordinat
@@ -225,10 +227,13 @@ else:
         "ScatterplotLayer",
         data=grouped_valid_for_map,
         get_position='[lon, lat]',
-        get_radius='radius',
+        get_radius='radius', # Mengambil kolom radius (sekarang fix 8000)
         get_fill_color='[200, 30, 0, 160]',
         pickable=True,
-        auto_highlight=True
+        auto_highlight=True,
+        # Opsional: Memastikan titik tidak terlalu kecil/besar saat di-zoom
+        radius_min_pixels=3,
+        radius_max_pixels=10
     )
 
     text_layer = pdk.Layer(
