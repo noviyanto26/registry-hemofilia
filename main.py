@@ -250,12 +250,11 @@ def check_password() -> bool:
     return False
 
 # -----------------------------
-# Definisi Menu & Icon Lengkap
+# Definisi Menu & Icon Lengkap (ADMIN)
 # -----------------------------
-# Menambahkan 01a_tampil_data.py ke daftar menu
 FULL_MENU_ITEMS = {
     "📝 Input Data Hemofilia": "01_pwh_input.py",
-    "📋 Tampil Data": "01a_tampil_data.py",  # <--- ITEM BARU
+    "📋 Tampil Data": "01a_tampil_data.py",
     "📊 Rekapitulasi per Kelompok Usia": "02_rekap_pwh.py",
     "🚻 Rekapitulasi per Jenis Kelamin": "03_rekap_gender.py",
     "🏥 RS Perawatan Hemofilia": "04_rs_hemofilia.py",
@@ -265,7 +264,6 @@ FULL_MENU_ITEMS = {
     "🗺️ Distribusi Hemofilia per RS Penangan": "08_distribusi_rs.py",
 }
 
-# Menambahkan icon 'table' untuk menu baru (posisi ke-2)
 FULL_ICONS = [
     "pencil-square", "table", "bar-chart", "person-arms-up", "hospital", 
     "book", "map", "geo-alt", "building"
@@ -306,12 +304,15 @@ def main():
         current_icons = FULL_ICONS
         role_label = "Admin (Semua Cabang)"
     else:
-        # User selain Admin (User Cabang) dapat melihat Input DAN Data Lengkap
+        # User selain Admin (User Cabang)
+        # Menambahkan 04a_rs_perawatan_hemofilia.py khusus user
         current_menu = {
             "📝 Input Data Hemofilia": "01_pwh_input.py",
-            "📋 Tampil Data Hemofilia": "01a_tampil_data.py"  # <--- DITAMBAHKAN UNTUK USER BIASA
+            "📋 Tampil Data Hemofilia": "01a_tampil_data.py",
+            "🏥 RS Perawatan Hemofilia": "04a_rs_perawatan_hemofilia.py"  # <--- ITEM BARU KHUSUS USER
         }
-        current_icons = ["pencil-square", "table"]
+        # Menambahkan icon hospital untuk menu ke-3
+        current_icons = ["pencil-square", "table", "hospital"]
         role_label = user_branch
 
     with st.sidebar:
