@@ -108,33 +108,34 @@ def load_kota_geo_from_db() -> pd.DataFrame:
 
 def normalize_name(name: str) -> str:
     """
-    Membersihkan nama kota dengan standarisasi prefix.
-    Kabupaten/Kab/Kab. -> 'kab [nama]'
-    Kota/Kota Adm -> 'kota [nama]'
+    Versi perbaikan: Menangani 'Kab.', 'Kab', 'Kabupaten' secara konsisten.
+    Contoh hasil: 
+      - 'Kab. Bandung' -> 'kab bandung'
+      - 'Kabupaten Bandung' -> 'kab bandung'
+      - 'Kota Bandung' -> 'kota bandung'
     """
     if not isinstance(name, str): return ""
     name = name.lower().strip()
     
-    # 1. Ganti titik dengan spasi (untuk handle typo 'Kab.Bandung')
-    name = name.replace(".", " ")
+    # 1. Ganti titik dengan spasi (KRUSIAL untuk menangani 'Kab. Bandung')
+    name = name.replace(".", " ") 
     
-    # 2. Hapus kata 'propinsi' atau 'provinsi' jika ada (agar match dengan CSV)
+    # 2. Hapus kata 'propinsi' atau 'provinsi' jika ada
     name = name.replace("propinsi ", "").replace("provinsi ", "")
 
     # 3. Standarisasi variasi 'kota'
     if name.startswith("kota administrasi "):
         name = name.replace("kota administrasi ", "kota ", 1)
-    elif name.startswith("kota ") and not name.startswith("kota"): # Cek simpel
-        pass # Sudah benar formatnya 'kota ...'
         
     # 4. Standarisasi variasi 'kabupaten'
-    # Ubah 'kabupaten ', 'kab ' menjadi 'kab ' standar
+    # Ubah 'kabupaten ' menjadi 'kab ' standar
     if name.startswith("kabupaten "):
         name = name.replace("kabupaten ", "kab ", 1)
+    # Handle 'kab ' (termasuk yang asalnya 'kab.' lalu titiknya dihapus di step 1)
     elif name.startswith("kab ") and not name.startswith("kabupaten"):
-        pass # Sudah benar formatnya 'kab ...' (karena titik sudah dihapus di step 1)
+        pass # Sudah format 'kab ...', biarkan
 
-    # 5. Bersihkan spasi ganda
+    # 5. Bersihkan spasi ganda (double space) akibat replace
     return " ".join(name.split())
 
 def create_geo_lookup(df_geo: pd.DataFrame) -> dict:
