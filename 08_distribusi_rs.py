@@ -108,21 +108,34 @@ def load_kota_geo_from_db() -> pd.DataFrame:
 
 def normalize_name(name: str) -> str:
     """
-    Membersihkan nama kota agar 'Kab. Aceh' cocok dengan 'Kabupaten Aceh'.
-    Menghapus prefiks: Kota, Kabupaten, Kab., Adm.
+    Membersihkan nama kota dengan standarisasi prefix.
+    Kabupaten/Kab/Kab. -> 'kab [nama]'
+    Kota/Kota Adm -> 'kota [nama]'
     """
     if not isinstance(name, str): return ""
     name = name.lower().strip()
     
-    # Daftar prefix yang akan dibuang
-    prefixes = ["kota administrasi ", "kota ", "kabupaten ", "kab. ", "kab "]
+    # 1. Ganti titik dengan spasi (untuk handle typo 'Kab.Bandung')
+    name = name.replace(".", " ")
     
-    for prefix in prefixes:
-        if name.startswith(prefix):
-            name = name.replace(prefix, "", 1)
-            break # Hanya hapus satu prefix di depan
-            
-    return name.strip()
+    # 2. Hapus kata 'propinsi' atau 'provinsi' jika ada (agar match dengan CSV)
+    name = name.replace("propinsi ", "").replace("provinsi ", "")
+
+    # 3. Standarisasi variasi 'kota'
+    if name.startswith("kota administrasi "):
+        name = name.replace("kota administrasi ", "kota ", 1)
+    elif name.startswith("kota ") and not name.startswith("kota"): # Cek simpel
+        pass # Sudah benar formatnya 'kota ...'
+        
+    # 4. Standarisasi variasi 'kabupaten'
+    # Ubah 'kabupaten ', 'kab ' menjadi 'kab ' standar
+    if name.startswith("kabupaten "):
+        name = name.replace("kabupaten ", "kab ", 1)
+    elif name.startswith("kab ") and not name.startswith("kabupaten"):
+        pass # Sudah benar formatnya 'kab ...' (karena titik sudah dihapus di step 1)
+
+    # 5. Bersihkan spasi ganda
+    return " ".join(name.split())
 
 def create_geo_lookup(df_geo: pd.DataFrame) -> dict:
     """Membuat Dictionary Lookup Key=(kota_norm, prov_norm) -> Value=(lat, lon)"""
