@@ -192,7 +192,7 @@ def build_bulk_template_bytes() -> bytes:
     rhesus = RHESUS or ["+","-"]
     genders = GENDERS or ["Laki-laki", "Perempuan"]
     education_levels = EDUCATION_LEVELS[1:] if EDUCATION_LEVELS and EDUCATION_LEVELS[0] == "" else EDUCATION_LEVELS
-    hemo_types = HEMO_TYPES or ["A","B","vWD","Other"]
+    hemo_types = HEMO_TYPES or ["A", "B", "vWD", "Other","Factor I deficiency","Factor II deficiency","Factor V deficiency","Factor V+VIII deficiency","Factor VII deficiency",    "Factor X deficiency","Factor XI deficiency","Factor XIII deficiency","Rare factor deficiency: type unknown","Platelet disorders: Glanzmann thrombasthenia", "Platelet disorders: Bernard Soulier Syndrome","Platelet disorders: other or unknown"]
     severities = SEVERITY_CHOICES or ["Ringan","Sedang","Berat","Tidak diketahui"]
     inhibitor_factors = INHIB_FACTORS or ["FVIII","FIX"]
     virus_tests = VIRUS_TESTS or ["HBsAg","Anti-HCV","HIV"]
