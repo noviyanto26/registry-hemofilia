@@ -197,7 +197,7 @@ def build_bulk_template_bytes() -> bytes:
     inhibitor_factors = INHIB_FACTORS or ["FVIII","FIX"]
     virus_tests = VIRUS_TESTS or ["HBsAg","Anti-HCV","HIV"]
     test_results = TEST_RESULTS or ["positive","negative","indeterminate","unknown"]
-    relations = RELATIONS or ["ayah","ibu","wali","pasien","lainnya"]
+    relations = RELATIONS or ["Ayah", "Ibu", "Wali", "Pasien", "Istri", "Suami", "Lainnya"]
     occupations = fetch_occupations_list()
     
     # <-- TAMBAHAN BARU -->
@@ -583,7 +583,7 @@ SEVERITIES   = fetch_enum_vals("severity_enum")           or ["Ringan","Sedang",
 INHIB_FACTORS= fetch_enum_vals("inhibitor_factor_enum") or ["FVIII","FIX"]
 VIRUS_TESTS  = fetch_enum_vals("virus_test_enum")       or ["HBsAg","Anti-HCV","HIV"]
 TEST_RESULTS = fetch_enum_vals("test_result_enum")    or ["positive","negative","indeterminate","unknown"]
-RELATIONS    = fetch_enum_vals("relation_enum")         or ["ayah","ibu","wali","pasien","lainnya"]
+RELATIONS    = fetch_enum_vals("relation_enum")         or ["Ayah", "Ibu", "Wali", "Pasien", "Istri", "Suami", "Lainnya"]
 PREFERRED_SEVERITY_ORDER = ["Ringan", "Sedang", "Berat", "Tidak diketahui"]
 SEVERITY_CHOICES = PREFERRED_SEVERITY_ORDER if all(x in SEVERITIES for x in PREFERRED_SEVERITY_ORDER) else SEVERITIES
 TREATMENT_TYPES = ["", "Prophylaxis", "On Demand"]
