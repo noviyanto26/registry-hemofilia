@@ -44,12 +44,14 @@ def get_engine(dsn: str) -> Engine:
 
 def fetch_data_for_gender(_engine: Engine) -> pd.DataFrame:
     """
-    Mengambil data jenis kelamin pasien dan diagnosis hemofilia.
+    Mengambil data jenis kelamin pasien, cabang, dan diagnosis hemofilia.
     """
     st.info("🔄 Mengambil data terbaru dari database...")
+    # MODIFIKASI: Menambahkan p.cabang
     query = text("""
         SELECT
             p.gender AS jenis_kelamin,
+            p.cabang,
             d.hemo_type
         FROM pwh.patients p
         JOIN pwh.hemo_diagnoses d ON p.id = d.patient_id
@@ -61,7 +63,7 @@ def fetch_data_for_gender(_engine: Engine) -> pd.DataFrame:
         return df
     except Exception as e:
         st.error(f"Gagal mengambil data: {e}")
-        st.info("Pastikan tabel 'pwh.patients' memiliki kolom 'gender' dan 'pwh.hemo_diagnoses' memiliki kolom 'hemo_type'.")
+        st.info("Pastikan tabel 'pwh.patients' memiliki kolom 'gender', 'cabang' dan 'pwh.hemo_diagnoses' memiliki kolom 'hemo_type'.")
         return pd.DataFrame()
 
 def map_hemo_type_to_category(hemo_type):
@@ -78,6 +80,11 @@ def map_hemo_type_to_category(hemo_type):
 
 def create_gender_summary_table(df: pd.DataFrame) -> pd.DataFrame:
     """Membuat tabel rekapitulasi berdasarkan kategori dan jenis kelamin."""
+    # Pastikan data tidak kosong sebelum diproses
+    if df.empty:
+        return pd.DataFrame(columns=['Laki-laki', 'Perempuan', 'Total'])
+
+    df = df.copy() # Hindari SettingWithCopyWarning
     df['Kategori'] = df['hemo_type'].apply(map_hemo_type_to_category)
     
     # Buat pivot table
@@ -139,9 +146,25 @@ if db_url:
     if data_df.empty:
         st.warning("Tidak ada data yang dapat ditampilkan dari database.")
     else:
+        # --- MODIFIKASI: Filter Berdasarkan Cabang ---
+        if 'cabang' in data_df.columns:
+            # Ambil daftar cabang unik
+            list_cabang = ['Semua Cabang'] + sorted(data_df['cabang'].dropna().astype(str).unique().tolist())
+            
+            # Buat Selectbox
+            selected_cabang = st.selectbox("🏥 Filter Berdasarkan Cabang:", list_cabang)
+            
+            # Terapkan Filter
+            if selected_cabang != 'Semua Cabang':
+                data_df = data_df[data_df['cabang'] == selected_cabang]
+        else:
+            st.warning("Kolom 'cabang' tidak ditemukan dalam data.")
+            selected_cabang = "Semua Data"
+        # --- END MODIFIKASI ---
+
         rekap_table = create_gender_summary_table(data_df)
 
-        st.subheader("Tabel Rekapitulasi")
+        st.subheader(f"Tabel Rekapitulasi{' - ' + selected_cabang if 'cabang' in data_df.columns and selected_cabang != 'Semua Cabang' else ''}")
         st.dataframe(rekap_table, use_container_width=True)
 
         # --- FUNGSI DOWNLOAD EXCEL ---
@@ -160,5 +183,8 @@ if db_url:
         st.markdown("---")
 
         st.subheader("Grafik Visualisasi")
-        fig = plot_gender_graph(rekap_table)
-        st.pyplot(fig)
+        if not rekap_table.empty:
+             fig = plot_gender_graph(rekap_table)
+             st.pyplot(fig)
+        else:
+             st.info("Tidak ada data untuk ditampilkan pada grafik setelah filter diterapkan.")
