@@ -46,19 +46,23 @@ def get_engine(dsn: str) -> Engine:
 
 def fetch_data_from_view(_engine: Engine) -> pd.DataFrame:
     """
-    Mengambil data pasien, usia, diagnosis, DAN CABANG dari view 'pwh.patients_with_age'.
+    Mengambil data pasien, usia, diagnosis, DAN CABANG.
+    Karena view 'pwh.patients_with_age' tidak memiliki kolom cabang,
+    kita melakukan JOIN ke tabel induk 'pwh.patients'.
     """
     st.info("🔄 Mengambil data terbaru dari database...") 
-    # MODIFIKASI: Menambahkan kolom v.cabang ke dalam query
+    
+    # PERBAIKAN SQL: Menambahkan JOIN ke pwh.patients (alias p) untuk mengambil cabang
     query = text("""
         SELECT
             v.id,
             v.full_name,
             v.usia_tahun as usia,
-            v.cabang, 
+            p.cabang, 
             d.hemo_type,
             d.severity
         FROM pwh.patients_with_age v
+        JOIN pwh.patients p ON v.id = p.id  -- JOIN TABEL INDUK
         JOIN pwh.hemo_diagnoses d ON v.id = d.patient_id;
     """)
     try:
@@ -66,8 +70,8 @@ def fetch_data_from_view(_engine: Engine) -> pd.DataFrame:
             df = pd.read_sql(query, connection)
         return df
     except Exception as e:
-        st.error(f"Gagal mengambil data dari view 'pwh.patients_with_age': {e}")
-        st.info("Pastikan view 'pwh.patients_with_age' ada dan memiliki kolom 'id', 'usia_tahun', dan 'cabang'.")
+        st.error(f"Gagal mengambil data: {e}")
+        st.info("Pastikan tabel 'pwh.patients' memiliki kolom 'cabang'.")
         return pd.DataFrame()
 
 def get_age_group(age):
@@ -161,7 +165,7 @@ if data_df.empty:
     st.warning("Tidak ada data yang dapat ditampilkan dari database.")
 else:
     if 'usia' in data_df.columns:
-        # --- MODIFIKASI: Filter Berdasarkan Cabang ---
+        # --- LOGIKA FILTER CABANG ---
         if 'cabang' in data_df.columns:
             # Ambil daftar cabang unik
             list_cabang = ['Semua Cabang'] + sorted(data_df['cabang'].dropna().astype(str).unique().tolist())
@@ -174,7 +178,7 @@ else:
                 data_df = data_df[data_df['cabang'] == selected_cabang]
         else:
             st.warning("Kolom 'cabang' tidak ditemukan dalam data.")
-        # --- END MODIFIKASI ---
+        # --- END LOGIKA FILTER ---
 
         data_df['kelompok_usia'] = data_df['usia'].apply(get_age_group)
         rekap_table = create_summary_table(data_df)
