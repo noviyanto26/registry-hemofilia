@@ -1,9 +1,9 @@
-# 02_rekap_pwh.py (Perbaikan Cache dan Download Excel)
+# 02_rekap_pwh.py (Perbaikan Cache, Download Excel, dan Filter Cabang)
 import os
-import io  # <-- TAMBAHAN BARU
+import io
 import pandas as pd
 import streamlit as st
-from pandas import ExcelWriter  # <-- TAMBAHAN BARU
+from pandas import ExcelWriter
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 import matplotlib.pyplot as plt
@@ -44,17 +44,18 @@ def get_engine(dsn: str) -> Engine:
 
 # --- FUNGSI PENGOLAHAN DATA ---
 
-# PERBAIKAN: Dekorator @st.cache_data dihapus agar query selalu dijalankan ulang
 def fetch_data_from_view(_engine: Engine) -> pd.DataFrame:
     """
-    Mengambil data pasien, usia, dan diagnosis dari view 'pwh.patients_with_age'.
+    Mengambil data pasien, usia, diagnosis, DAN CABANG dari view 'pwh.patients_with_age'.
     """
-    st.info("🔄 Mengambil data terbaru dari database...") # Tambahan: Notifikasi untuk pengguna
+    st.info("🔄 Mengambil data terbaru dari database...") 
+    # MODIFIKASI: Menambahkan kolom v.cabang ke dalam query
     query = text("""
         SELECT
             v.id,
             v.full_name,
             v.usia_tahun as usia,
+            v.cabang, 
             d.hemo_type,
             d.severity
         FROM pwh.patients_with_age v
@@ -66,7 +67,7 @@ def fetch_data_from_view(_engine: Engine) -> pd.DataFrame:
         return df
     except Exception as e:
         st.error(f"Gagal mengambil data dari view 'pwh.patients_with_age': {e}")
-        st.info("Pastikan view 'pwh.patients_with_age' ada dan memiliki kolom 'id' dan 'usia_tahun'.")
+        st.info("Pastikan view 'pwh.patients_with_age' ada dan memiliki kolom 'id', 'usia_tahun', dan 'cabang'.")
         return pd.DataFrame()
 
 def get_age_group(age):
@@ -134,19 +135,15 @@ def plot_graph(summary_df: pd.DataFrame) -> plt.Figure:
     plt.tight_layout()
     return fig
 
-# --- PERUBAHAN: Fungsi diubah dari CSV ke Excel ---
 def convert_df_to_excel(df: pd.DataFrame) -> bytes:
     """Mengonversi DataFrame ke format Excel (xlsx) untuk diunduh."""
     output = io.BytesIO()
     with ExcelWriter(output, engine="xlsxwriter") as writer:
         df.to_excel(writer, sheet_name="Rekapitulasi", index=True)
-        # Tambahkan auto-fit kolom
         ws = writer.sheets["Rekapitulasi"]
-        # Fit kolom index
         max_len_idx = max(df.index.astype(str).map(len).max(), len(df.index.name or "")) + 2
         ws.set_column(0, 0, max_len_idx)
-        # Fit kolom data
-        for col_idx, col_name in enumerate(df.columns, 1): # Mulai dari 1
+        for col_idx, col_name in enumerate(df.columns, 1):
             max_len = max(
                 (df[col_name].astype(str).map(len).max() if not df.empty else 0),
                 len(str(col_name))
@@ -154,7 +151,6 @@ def convert_df_to_excel(df: pd.DataFrame) -> bytes:
             ws.set_column(col_idx, col_idx, min(max_len, 50))
             
     return output.getvalue()
-# --- END PERUBAHAN ---
 
 # --- MAIN APP LOGIC ---
 db_url = _resolve_db_url()
@@ -165,14 +161,28 @@ if data_df.empty:
     st.warning("Tidak ada data yang dapat ditampilkan dari database.")
 else:
     if 'usia' in data_df.columns:
+        # --- MODIFIKASI: Filter Berdasarkan Cabang ---
+        if 'cabang' in data_df.columns:
+            # Ambil daftar cabang unik
+            list_cabang = ['Semua Cabang'] + sorted(data_df['cabang'].dropna().astype(str).unique().tolist())
+            
+            # Buat Selectbox
+            selected_cabang = st.selectbox("🏥 Filter Berdasarkan Cabang:", list_cabang)
+            
+            # Terapkan Filter
+            if selected_cabang != 'Semua Cabang':
+                data_df = data_df[data_df['cabang'] == selected_cabang]
+        else:
+            st.warning("Kolom 'cabang' tidak ditemukan dalam data.")
+        # --- END MODIFIKASI ---
+
         data_df['kelompok_usia'] = data_df['usia'].apply(get_age_group)
         rekap_table = create_summary_table(data_df)
         
-        st.subheader("Tabel Rekapitulasi")
+        st.subheader(f"Tabel Rekapitulasi{' - ' + selected_cabang if 'cabang' in data_df.columns and selected_cabang != 'Semua Cabang' else ''}")
         st.dataframe(rekap_table.style.apply(lambda x: ['background-color: #e8f4f8' if x.name == 'Total' else '' for i in x], axis=1)
                                     .apply(lambda x: ['background-color: #e8f4f8' if x.name == 'Total' else '' for i in x], axis=0))
 
-        # --- PERUBAHAN: Tombol Download diubah ke Excel ---
         excel_data = convert_df_to_excel(rekap_table)
         st.download_button(
             label="📥 Download Rekapitulasi (Excel)",
@@ -180,7 +190,6 @@ else:
             file_name='rekapitulasi_hemofilia.xlsx',
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
-        # --- END PERUBAHAN ---
         
         st.markdown("---")
 
