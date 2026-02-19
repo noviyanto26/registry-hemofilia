@@ -15,7 +15,7 @@ st.set_page_config(page_title="PWH Input", page_icon="🩸", layout="wide")
 # Builder file Excel (multi-sheet) untuk semua tab
 # ------------------------------------------------------------------------------
 def build_excel_bytes() -> bytes:
-    # Ambil semua dataset
+    # --- PERUBAHAN DI SINI: Query df_patients dimodifikasi untuk mengambil Keterangan Meninggal ---
     df_patients = run_df_branch("""
         SELECT
     p.id,
@@ -38,13 +38,13 @@ def build_excel_bytes() -> bytes:
     p.cabang, 
     p.kota_cakupan,
     p.note,
-    p.created_at
+    p.created_at,
+    CASE WHEN d.id IS NOT NULL THEN COALESCE(d.cause_of_death, 'Meninggal') ELSE NULL END AS keterangan_meninggal
 FROM pwh.patients p
+LEFT JOIN pwh.death d ON p.id = d.patient_id
 ORDER BY p.id
     """)
-    # ============================================================
-    # TAMBAHKAN KODE INI DI BAWAH QUERY df_patients
-    # ============================================================
+    # --- END PERUBAHAN ---
     
     # 1. Reset index agar urut dari 0
     df_patients.reset_index(drop=True, inplace=True)
@@ -86,7 +86,6 @@ ORDER BY p.id
         ORDER BY c.patient_id, c.id
     """)
     
-    # --- PERUBAHAN DI SINI: Query summary dimodifikasi untuk mengambil Cabang & Kematian ---
     df_summary = run_df_branch("""
         SELECT s.*, p.cabang, d.cause_of_death 
         FROM pwh.patient_summary s
@@ -96,34 +95,26 @@ ORDER BY p.id
     """)
     
     # --- FIX: Hapus Timezone dari Datetime Columns ---
-    # Excel (via xlsxwriter) tidak mendukung datetime yang 'timezone-aware' (misal: UTC)
-    # Kita harus membuatnya 'naive' (menghapus info timezone) sebelum di-write.
-    
-    # 1. Kolom spesifik di df_patients (created_at)
     if 'created_at' in df_patients.columns and pd.api.types.is_datetime64_any_dtype(df_patients['created_at']):
         try:
             if df_patients['created_at'].dt.tz is not None:
                 df_patients['created_at'] = df_patients['created_at'].dt.tz_localize(None)
         except AttributeError:
-            pass # Lanjut jika kolom kosong/NaT
+            pass 
 
-    # 2. Sanitasi umum untuk df_summary (karena kita tidak tahu kolomnya dari SELECT *)
     for col in df_summary.columns:
         if pd.api.types.is_datetime64_any_dtype(df_summary[col]):
             try:
                 if df_summary[col].dt.tz is not None:
                     df_summary[col] = df_summary[col].dt.tz_localize(None)
             except AttributeError:
-                pass # Lanjut jika kolom kosong/NaT
+                pass 
     # --- END FIX ---
 
-    # --- TAMBAHAN LOGIKA SUMMARY (NOMOR, CABANG, KEMATIAN) ---
-    # 1. Tambah Nomor Urut di paling depan
+    # --- LOGIKA SUMMARY ---
     df_summary.reset_index(drop=True, inplace=True)
     df_summary.insert(0, 'No', range(1, 1 + len(df_summary)))
 
-    # 2. Pindah posisi kolom 'cabang' agar sesudah 'id'
-    # Asumsi: 'cause_of_death' sudah ada di posisi akhir karena ditaruh di akhir SELECT
     cols = df_summary.columns.tolist()
     if 'id' in cols and 'cabang' in cols:
         cols.remove('cabang')
@@ -131,28 +122,29 @@ ORDER BY p.id
         cols.insert(idx_id + 1, 'cabang')
         df_summary = df_summary[cols]
     
-    # 3. Update Alias Map untuk kolom baru (hanya lokal di fungsi ini)
     alias_summary_updated = ALIAS_SUMMARY.copy()
     alias_summary_updated.update({
         "cabang": "HMHI Cabang",
         "cause_of_death": "Penyebab Kematian"
     })
-    # ---------------------------------------------------------
-
-    # Alias sheet agar ramah dilihat
-    a_patients  = _alias_df(df_patients, ALIAS_PATIENTS)
+    
+    # --- PERUBAHAN DI SINI: Update Map Kolom Export Pasien ---
+    alias_patients_updated = ALIAS_PATIENTS.copy()
+    alias_patients_updated.update({"keterangan_meninggal": "Keterangan Meninggal"})
+    
+    a_patients  = _alias_df(df_patients, alias_patients_updated)
+    # --- END PERUBAHAN ---
+    
     a_diag      = _alias_df(df_diag, ALIAS_DIAG)
     a_inh       = _alias_df(df_inh, ALIAS_INH)
     a_virus     = _alias_df(df_virus, ALIAS_VIRUS)
     a_hospital  = _alias_df(df_hospital, ALIAS_HOSPITAL)
     a_death     = _alias_df(df_death, ALIAS_DEATH)
     a_contacts  = _alias_df(df_contacts, ALIAS_CONTACTS)
-    # Gunakan alias map yang sudah diupdate
     a_summary   = _alias_df(df_summary, alias_summary_updated)
 
     output = io.BytesIO()
     with ExcelWriter(output, engine="xlsxwriter", datetime_format="yyyy-mm-dd", date_format="yyyy-mm-dd") as writer:
-        # --- Gunakan nama sheet Bahasa Indonesia untuk EXPORT ---
         a_patients.to_excel(writer, sheet_name="Pasien", index=False)
         a_diag.to_excel(writer, sheet_name="Diagnosa", index=False)
         a_inh.to_excel(writer, sheet_name="Inhibitor", index=False)
@@ -161,9 +153,7 @@ ORDER BY p.id
         a_death.to_excel(writer, sheet_name="Kematian", index=False)
         a_contacts.to_excel(writer, sheet_name="Kontak", index=False)
         a_summary.to_excel(writer, sheet_name="Ringkasan Pasien", index=False)
-        # --- END PERUBAHAN ---
 
-        # Auto-fit kolom sederhana
         sheet_map = {
             "Pasien": a_patients,
             "Diagnosa": a_diag,
@@ -187,7 +177,6 @@ ORDER BY p.id
 # Builder Template Excel (bulk) untuk insert data ke semua tabel
 # ------------------------------------------------------------------------------
 def build_bulk_template_bytes() -> bytes:
-    # Lookup dari DB/enum (fallback ke nilai yang sudah ditentukan di program)
     blood_groups = BLOOD_GROUPS or ["A","B","AB","O"]
     rhesus = RHESUS or ["+","-"]
     genders = GENDERS or ["Laki-laki", "Perempuan"]
@@ -200,54 +189,51 @@ def build_bulk_template_bytes() -> bytes:
     relations = RELATIONS or ["Ayah", "Ibu", "Wali", "Pasien", "Istri", "Suami", "Lainnya"]
     occupations = fetch_occupations_list()
     
-    # <-- TAMBAHAN BARU -->
     df_hmhi_branches = fetch_hmhi_branches() 
     hmhi_branches = [""] + df_hmhi_branches['cabang'].unique().tolist()
-    # <-- END TAMBAHAN BARU -->
 
-    treatment_types = ["", "Prophylaxis", "On Demand"] # Add blank option
-    care_services = ["", "Rawat Jalan", "Rawat Inap"] # Add blank option
-    products = ["", "Plasma (FFP)","Cryoprecipitate","Konsentrat (plasma derived)","Konsentrat (rekombinan)","Konsentrat (prolonged half life)","Prothrombin Complex","DDAVP","Emicizumab (Hemlibra)","Konsentrat Bypassing Agent"] # Add blank option
-    primary_bools = ["TRUE", "FALSE"] # Define list for Kontak Primary
+    treatment_types = ["", "Prophylaxis", "On Demand"] 
+    care_services = ["", "Rawat Jalan", "Rawat Inap"] 
+    products = ["", "Plasma (FFP)","Cryoprecipitate","Konsentrat (plasma derived)","Konsentrat (rekombinan)","Konsentrat (prolonged half life)","Prothrombin Complex","DDAVP","Emicizumab (Hemlibra)","Konsentrat Bypassing Agent"] 
+    primary_bools = ["TRUE", "FALSE"] 
 
-    # Gunakan nama sheet dan kolom Bahasa Indonesia
     template_sheets = {
         "Pasien": [
             ("Nama Lengkap", "text"), ("Tempat Lahir", "text"), ("Tanggal Lahir", "date"),
             ("NIK", "text"),
-            ("Gol. Darah", ("list", "blood_groups")), ("Rhesus", ("list", "rhesus")), # Use named range
-            ("Jenis Kelamin", ("list", "genders")), # Use named range
-            ("Pekerjaan", ("list", "occupations")), # Use named range
-            ("Pendidikan Terakhir", ("list", "education_levels")), # Use named range
+            ("Gol. Darah", ("list", "blood_groups")), ("Rhesus", ("list", "rhesus")), 
+            ("Jenis Kelamin", ("list", "genders")), 
+            ("Pekerjaan", ("list", "occupations")), 
+            ("Pendidikan Terakhir", ("list", "education_levels")), 
             ("Alamat", "text"),
             ("No. Ponsel", "text"), ("Propinsi", "text"), ("Kabupaten/Kota", "text"),
             ("Kecamatan", "text"), ("Kelurahan/Desa", "text"),
-            ("HMHI Cabang", ("list", "hmhi_cabang_vals")), ("Kota Cakupan Cabang", "text"), # <-- TAMBAHAN BARU
+            ("HMHI Cabang", ("list", "hmhi_cabang_vals")), ("Kota Cakupan Cabang", "text"), 
             ("Catatan", "text"),
         ],
         "Diagnosa": [
             ("patient_id", "int"), ("Nama Lengkap", "text"),
-            ("Jenis Hemofilia", ("list", "hemo_types")), ("Kategori", ("list", "severities")), # Use named ranges
+            ("Jenis Hemofilia", ("list", "hemo_types")), ("Kategori", ("list", "severities")), 
             ("Tgl Diagnosis", "date"), ("Sumber", "text"),
         ],
         "Inhibitor": [
             ("patient_id", "int"), ("Nama Lengkap", "text"),
-            ("Faktor", ("list", "inhibitor_factors")), ("Titer (BU)", "number"), # Use named range
+            ("Faktor", ("list", "inhibitor_factors")), ("Titer (BU)", "number"), 
             ("Tgl Ukur", "date"), ("Lab", "text"),
         ],
         "Virus Tes": [
             ("patient_id", "int"), ("Nama Lengkap", "text"),
-            ("Jenis Tes", ("list", "virus_tests")), ("Hasil", ("list", "test_results")), # Use named ranges
+            ("Jenis Tes", ("list", "virus_tests")), ("Hasil", ("list", "test_results")), 
             ("Tgl Tes", "date"), ("Lab", "text"),
         ],
         "RS Penangan": [
             ("patient_id", "int"), ("Nama Lengkap", "text"),
             ("Nama RS", "text"), ("Kota RS", "text"), ("Provinsi RS", "text"),
             ("Tanggal Kunjungan", "date"), ("DPJP", "text"),
-            ("Jenis Penanganan", ("list", "treatment_types_vals")), # Use new named range
-            ("Layanan Rawat", ("list", "care_services_vals")),     # Use new named range
+            ("Jenis Penanganan", ("list", "treatment_types_vals")), 
+            ("Layanan Rawat", ("list", "care_services_vals")),     
             ("Frekuensi", "text"), ("Dosis", "text"),
-            ("Produk", ("list", "products_vals")),                 # Use new named range
+            ("Produk", ("list", "products_vals")),                 
             ("Merk", "text"),
         ],
         "Kematian": [
@@ -256,9 +242,9 @@ def build_bulk_template_bytes() -> bytes:
         ],
         "Kontak": [
             ("patient_id", "int"), ("Nama Lengkap", "text"),
-            ("Relasi", ("list", "relations")), ("Nama Kontak", "text"), # Use named range
+            ("Relasi", ("list", "relations")), ("Nama Kontak", "text"), 
             ("No. Telp", "text"),
-            ("Primary", ("list", "primary_vals")), # Use new named range for TRUE/FALSE
+            ("Primary", ("list", "primary_vals")), 
         ],
     }
 
@@ -286,34 +272,30 @@ def build_bulk_template_bytes() -> bytes:
         readme = [("Template Bulk Insert PWH", fmt_h),("Cara pakai:", None),("1) Isi setiap sheet sesuai kolom.", None),("2) Gunakan format tanggal yyyy-mm-dd.", None),("3) Kolom dropdown sudah dibatasi ke pilihan valid.", None),("4) Jika mengisi pasien baru, sheet lain boleh pakai kolom 'Nama Lengkap' untuk mapping.", None),("5) Jika sudah tahu patient_id, isi langsung untuk akurasi.", None),("6) 'Primary' (Kontak) gunakan TRUE/FALSE.", None)]
         for r, (txt2, sty) in enumerate(readme): ws_readme.write(r, 0, txt2, sty)
 
-        # Definisikan SEMUA list di sheet 'lookups'
         ws_lk = wb.add_worksheet("lookups")
-        # Tambahkan list lokal ke look_cols
         look_cols = [
             ("blood_groups", blood_groups), ("rhesus", rhesus), ("genders", genders),
             ("hemo_types", hemo_types), ("severities", severities), ("education_levels", education_levels),
             ("inhibitor_factors", inhibitor_factors), ("virus_tests", virus_tests), ("test_results", test_results),
             ("relations", relations), ("occupations", occupations),
-            ("treatment_types_vals", treatment_types), # Nama baru untuk named range
-            ("care_services_vals", care_services),     # Nama baru
-            ("products_vals", products),               # Nama baru
-            ("primary_vals", primary_bools),           # Nama baru
-            ("hmhi_cabang_vals", hmhi_branches)        # <-- TAMBAHAN BARU
+            ("treatment_types_vals", treatment_types), 
+            ("care_services_vals", care_services),     
+            ("products_vals", products),               
+            ("primary_vals", primary_bools),           
+            ("hmhi_cabang_vals", hmhi_branches)        
         ]
         for j, (name, items) in enumerate(look_cols):
             ws_lk.write(0, j, name, fmt_header)
-            # Pastikan items adalah list sebelum iterasi
             if isinstance(items, list):
                 for i, v in enumerate(items, start=1):
                     ws_lk.write(i, j, v)
                 col_letter = _col_letter(j)
                 last_row = len(items) + 1
-                # Define name globaly
                 wb.define_name(name, f"=lookups!${col_letter}$2:${col_letter}${last_row}")
             else:
-                st.warning(f"Lookup '{name}' expected a list, but got {type(items)}. Skipping definition.") # Tambah warning jika bukan list
+                st.warning(f"Lookup '{name}' expected a list, but got {type(items)}. Skipping definition.") 
 
-        max_rows = 1000 # Excel row limit for validation range (adjust if needed)
+        max_rows = 1000 
         for sheet, cols in template_sheets.items():
             ws = wb.add_worksheet(sheet)
             ws.freeze_panes(1, 0)
@@ -322,23 +304,20 @@ def build_bulk_template_bytes() -> bytes:
                 ws.set_column(idx, idx, max(15, len(col_name) + 2))
 
                 if isinstance(col_type, tuple) and col_type[0] == "list":
-                    # Semua list sekarang pakai named range dari 'lookups'
-                    named_range = col_type[1] # Ini *harus* string nama range (e.g., "blood_groups")
+                    named_range = col_type[1] 
                     if isinstance(named_range, str):
                         source = f"={named_range}"
                         ws.data_validation(1, idx, max_rows, idx, {"validate": "list", "source": source})
                     else:
-                         st.warning(f"Invalid list source for '{col_name}' in sheet '{sheet}': Expected named range string.") # Warning jika format salah
-                    # Hapus logika pembuatan range lokal
+                         st.warning(f"Invalid list source for '{col_name}' in sheet '{sheet}': Expected named range string.") 
 
                 elif col_type == "date":
                     ws.set_column(idx, idx, 14, fmt_date)
-                # Tambah kriteria untuk validasi angka
                 elif col_type == "int":
                     ws.data_validation(1, idx, max_rows, idx, {
                         "validate": "integer",
                         "criteria": ">=",
-                        "value": 0, # Tahun kematian minimal 0 (atau sesuaikan jika perlu)
+                        "value": 0, 
                         "input_title": "Angka Bulat",
                         "input_message": "Masukkan angka bulat positif.",
                         "error_title": "Input Salah",
@@ -348,7 +327,7 @@ def build_bulk_template_bytes() -> bytes:
                      ws.data_validation(1, idx, max_rows, idx, {
                         "validate": "decimal",
                         "criteria": ">=",
-                        "value": 0.0, # Titer BU minimal 0.0
+                        "value": 0.0, 
                         "input_title": "Angka Desimal",
                         "input_message": "Masukkan angka desimal positif.",
                         "error_title": "Input Salah",
@@ -391,21 +370,16 @@ except Exception as e:
 # FILTER CABANG BERDASARKAN LOGIN
 # ------------------------------------------------------------------------------
 def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
-    """Menjalankan query dengan filter cabang otomatis sesuai user login."""
-    
     current_user_branch = st.session_state.get("user_branch", None)
     
     query_filtered = query.strip()
     query_upper = query_filtered.upper()
     
-    # Periksa apakah query ini perlu difilter
-    # Hanya filter jika query mengandung 'pwh.patients' DAN user bukan admin
     if current_user_branch and current_user_branch != "ALL" and "PWH.PATIENTS" in query_upper:
         
         params = params or {}
         params["branch"] = current_user_branch
         
-        # 1. Tentukan alias/prefix
         alias_prefix = None
         if "JOIN PWH.PATIENTS P" in query_upper or "FROM PWH.PATIENTS P" in query_upper:
             alias_prefix = "p."
@@ -416,16 +390,14 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
             join_index = query_upper.find("JOIN PWH.PATIENTS")
             
             if from_index != -1 and (from_index < join_index or join_index == -1):
-                alias_prefix = "" # Tanpa alias
+                alias_prefix = "" 
         
         if alias_prefix is None:
             with engine.begin() as conn:
                 return pd.read_sql(text(query_filtered), conn, params=params or {})
 
-        # 2. Build the filter string
         filter_string = f"{alias_prefix}cabang = :branch"
 
-        # 3. Inject the filter string
         where_exists = "WHERE" in query_upper
         
         if where_exists:
@@ -446,7 +418,6 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
             if not injected:
                 query_filtered += f" WHERE {filter_string}"
 
-    # 4. Execute (baik yang difilter maupun yang asli)
     with engine.begin() as conn:
         return pd.read_sql(text(query_filtered), conn, params=params or {})
 
@@ -454,9 +425,7 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
 # ------------------------------------------------------------------------------
 # Helper eksekusi (Hanya untuk INSERT/UPDATE)
 # ------------------------------------------------------------------------------
-# Cari fungsi run_exec dan update menjadi seperti ini:
 def run_exec(sql: str, params: dict | None = None):
-    # Gunakan connect() dan commit() eksplisit agar lebih aman
     with engine.connect() as conn:
         conn.execute(text(sql), params or {})
         conn.commit()
@@ -466,10 +435,8 @@ def run_exec(sql: str, params: dict | None = None):
 # ------------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def fetch_enum_vals(enum_typename: str) -> list[str]:
-    # Query ini tidak perlu filter cabang
     q = "SELECT e.enumlabel FROM pg_type t JOIN pg_enum e ON t.oid = e.enumtypid JOIN pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = 'pwh' AND t.typname = :typ ORDER BY e.enumsortorder;"
     try:
-        # Gunakan read_sql langsung karena tidak perlu filter
         with engine.begin() as conn:
             df = pd.read_sql(text(q), conn, params={"typ": enum_typename})
         return df["enumlabel"].tolist()
@@ -479,7 +446,6 @@ def fetch_enum_vals(enum_typename: str) -> list[str]:
 @st.cache_data(show_spinner=False)
 def fetch_occupations_list() -> list[str]:
     try:
-        # Tidak perlu filter cabang
         with engine.begin() as conn:
             df = pd.read_sql(text("SELECT name FROM pwh.occupations ORDER BY name;"), conn)
         if not df.empty: return [""] + df["name"].dropna().astype(str).tolist()
@@ -488,7 +454,6 @@ def fetch_occupations_list() -> list[str]:
 
 @st.cache_data(show_spinner="Memuat data wilayah...")
 def fetch_all_wilayah_details() -> pd.DataFrame:
-    """Mengambil data lengkap wilayah (Kelurahan, Kecamatan, Kota, Propinsi) dari DB."""
     try:
         q = """
         SELECT
@@ -500,17 +465,16 @@ def fetch_all_wilayah_details() -> pd.DataFrame:
         FROM
             public.wilayah AS kel
         JOIN
-            public.wilayah AS kec ON kec.kode = LEFT(kel.kode, 8) -- e.g., 32.75.01
+            public.wilayah AS kec ON kec.kode = LEFT(kel.kode, 8) 
         JOIN
-            public.wilayah AS kota ON kota.kode = LEFT(kel.kode, 5) -- e.g., 32.75
+            public.wilayah AS kota ON kota.kode = LEFT(kel.kode, 5) 
         JOIN
-            public.wilayah AS prov ON prov.kode = LEFT(kel.kode, 2) -- e.g., 32
+            public.wilayah AS prov ON prov.kode = LEFT(kel.kode, 2) 
         WHERE
-            LENGTH(kel.kode) = 13  -- Standard code length for village
+            LENGTH(kel.kode) = 13 
         ORDER BY
             full_display;
         """
-        # Tidak perlu filter cabang
         with engine.begin() as conn:
             df = pd.read_sql(text(q), conn)
         if not df.empty:
@@ -518,7 +482,6 @@ def fetch_all_wilayah_details() -> pd.DataFrame:
     except Exception as e:
         st.warning(f"Gagal memuat data wilayah: {e}")
         pass
-    # Fallback data jika query gagal
     return pd.DataFrame({
         'village_name': ['MUSTIKA JAYA'],
         'district_name': ['MUSTIKA JAYA'],
@@ -527,14 +490,10 @@ def fetch_all_wilayah_details() -> pd.DataFrame:
         'full_display': ['MUSTIKA JAYA - MUSTIKA JAYA - KOTA BEKASI - JAWA BARAT']
     })
 
-# --- FUNGSI BARU UNTUK CABANG HMHI ---
 @st.cache_data(show_spinner="Memuat data cabang HMHI...")
 def fetch_hmhi_branches() -> pd.DataFrame:
-    """Mengambil data cabang HMHI dan kota cakupannya."""
     try:
-        # Menggunakan schema pwh.hmhi_cabang sesuai permintaan
         q = "SELECT DISTINCT cabang, kota_cakupan FROM pwh.hmhi_cabang WHERE cabang IS NOT NULL ORDER BY cabang;"
-        # Tidak perlu filter cabang
         with engine.begin() as conn:
             df = pd.read_sql(text(q), conn)
         if not df.empty:
@@ -542,18 +501,15 @@ def fetch_hmhi_branches() -> pd.DataFrame:
     except Exception as e:
         st.warning(f"Gagal memuat data Cabang HMHI: {e}")
         pass
-    # Fallback data jika query gagal
     return pd.DataFrame({
         'cabang': ['BEKASI'],
         'kota_cakupan': ['KOTA BEKASI, KAB. BEKASI']
     })
-# --- END FUNGSI BARU ---
 
 @st.cache_data(show_spinner=False)
 def fetch_hospitals() -> list[str]:
     try:
         q = "SELECT CONCAT_WS(' - ', nama_rs, kota, provinsi) as hospital_display FROM public.rumah_sakit ORDER BY hospital_display;"
-        # Tidak perlu filter cabang
         with engine.begin() as conn:
             df = pd.read_sql(text(q), conn)
         if not df.empty:
@@ -563,12 +519,8 @@ def fetch_hospitals() -> list[str]:
         pass
     return ["", "RSUPN Dr. Cipto Mangunkusumo - Jakarta Pusat - DKI Jakarta", "RS Kanker Dharmais - Jakarta Barat - DKI Jakarta"]
 
-# --- FUNGSI BARU UNTUK MENGAMBIL DATA PASIEN ---
 @st.cache_data(show_spinner="Memuat daftar pasien...")
-def get_all_patients_for_selection(user_branch: str | None): # <-- TAMBAHKAN ARGUMEN INI
-    """Mengambil daftar pasien dari DB untuk digunakan di selectbox."""
-    # --- PERUBAHAN DI SINI: Menggunakan run_df_branch ---
-    # Ini akan otomatis memfilter dropdown pasien sesuai cabang user
+def get_all_patients_for_selection(user_branch: str | None): 
     return run_df_branch("SELECT id, full_name FROM pwh.patients ORDER BY full_name;")
 
 # ------------------------------------------------------------------------------
@@ -614,14 +566,10 @@ def _alias_df(df: pd.DataFrame, alias_map: dict) -> pd.DataFrame:
 # Helper Functions (INSERT, UPDATE)
 # ------------------------------------------------------------------------------
 def insert_patient(payload: dict) -> int:
-    # 1. Sanitasi Nomor Telepon (Mencegah error 'value too long')
-    # Ambil 20 karakter pertama saja jika kepanjangan
     if payload.get('phone') and len(str(payload['phone'])) > 20:
         raw_phone = str(payload['phone'])
-        # Jika formatnya "08xx/08yy", ambil yang depan saja
         if '/' in raw_phone:
             raw_phone = raw_phone.split('/')[0].strip()
-        # Potong paksa jika masih > 20
         payload['phone'] = raw_phone[:20]
 
     sql = """
@@ -637,17 +585,14 @@ def insert_patient(payload: dict) -> int:
     """
     
     try:
-        # Coba lakukan INSERT data baru
         with engine.begin() as conn:
             return int(conn.execute(text(sql), payload).scalar())
             
     except IntegrityError as e:
-        # Tangkap error jika NIK sudah ada (UniqueViolation)
         err_msg = str(e).lower()
         if "unique_nik" in err_msg or "duplicate key" in err_msg:
             print(f"NIK {payload['nik']} sudah ada, mengambil ID existing...")
             
-            # Query untuk mengambil ID dari pasien yang sudah ada
             find_sql = "SELECT id FROM pwh.patients WHERE nik = :nik"
             with engine.begin() as conn:
                 existing_id = conn.execute(text(find_sql), {"nik": payload["nik"]}).scalar()
@@ -655,7 +600,6 @@ def insert_patient(payload: dict) -> int:
                 if existing_id:
                     return int(existing_id)
         
-        # Jika errornya bukan karena NIK duplikat, biarkan program error (raise)
         raise e
 
 def update_patient(id: int, payload: dict):
@@ -710,14 +654,12 @@ def update_treatment_hospital(id: int, payload: dict):
     run_exec(sql, payload)
 
 def delete_treatment_hospital(id: int):
-    """Menghapus data penanganan RS dengan aman, memeriksa kepemilikan cabang."""
     current_user_branch = st.session_state.get("user_branch", None)
     is_admin = (current_user_branch == "ALL" or not current_user_branch)
     
     params = {"id": id}
 
     if not is_admin:
-        # Jika bukan admin, pastikan data yg dihapus adalah milik pasien di cabangnya
         sql = """
             DELETE FROM pwh.treatment_hospital t
             USING pwh.patients p
@@ -732,16 +674,10 @@ def delete_treatment_hospital(id: int):
             if result is None:
                 raise Exception("Gagal menghapus: Data tidak ditemukan di cabang Anda atau ID salah.")
     else:
-        # Admin bisa hapus langsung by ID
         sql = "DELETE FROM pwh.treatment_hospital WHERE id = :id"
         run_exec(sql, params)
 
-# ==============================================================================
-# --- START: BLOK FUNGSI DELETE BARU ---
-# ==============================================================================
-
 def delete_hemo_diagnosis(id: int):
-    """Menghapus data diagnosis dengan aman, memeriksa kepemilikan cabang."""
     current_user_branch = st.session_state.get("user_branch", None)
     is_admin = (current_user_branch == "ALL" or not current_user_branch)
     
@@ -766,7 +702,6 @@ def delete_hemo_diagnosis(id: int):
         run_exec(sql, params)
 
 def delete_hemo_inhibitor(id: int):
-    """Menghapus data inhibitor dengan aman, memeriksa kepemilikan cabang."""
     current_user_branch = st.session_state.get("user_branch", None)
     is_admin = (current_user_branch == "ALL" or not current_user_branch)
     
@@ -791,7 +726,6 @@ def delete_hemo_inhibitor(id: int):
         run_exec(sql, params)
 
 def delete_virus_test(id: int):
-    """Menghapus data tes virus dengan aman, memeriksa kepemilikan cabang."""
     current_user_branch = st.session_state.get("user_branch", None)
     is_admin = (current_user_branch == "ALL" or not current_user_branch)
     
@@ -816,15 +750,10 @@ def delete_virus_test(id: int):
         run_exec(sql, params)
 
 def delete_death_record(id: int):
-    """Menghapus data kematian dengan aman, memeriksa kepemilikan cabang."""
     current_user_branch = st.session_state.get("user_branch", None)
     is_admin = (current_user_branch == "ALL" or not current_user_branch)
     
-    # --- PERBAIKAN UTAMA DI SINI ---
-    # Memaksa konversi id menjadi integer biasa (Python native)
-    # agar tidak dianggap sebagai numpy.int64 yang menyebabkan error.
     params = {"id": int(id)}
-    # -------------------------------
 
     if not is_admin:
         sql = """
@@ -845,7 +774,6 @@ def delete_death_record(id: int):
         run_exec(sql, params)
 
 def delete_contact(id: int):
-    """Menghapus data kontak dengan aman, memeriksa kepemilikan cabang."""
     current_user_branch = st.session_state.get("user_branch", None)
     is_admin = (current_user_branch == "ALL" or not current_user_branch)
     
@@ -869,12 +797,7 @@ def delete_contact(id: int):
         sql = "DELETE FROM pwh.contacts WHERE id = :id"
         run_exec(sql, params)
 
-# ==============================================================================
-# --- END: BLOK FUNGSI DELETE BARU ---
-# ==============================================================================
-
 def insert_death_record(payload: dict):
-    # Hanya boleh ada 1 record kematian per pasien
     sql = "INSERT INTO pwh.death (patient_id, cause_of_death, year_of_death) VALUES (:patient_id, :cause_of_death, :year_of_death) ON CONFLICT (patient_id) DO UPDATE SET cause_of_death = EXCLUDED.cause_of_death, year_of_death = EXCLUDED.year_of_death;"
     run_exec(sql, payload)
 
@@ -915,13 +838,12 @@ def import_bulk_excel(file) -> dict:
     xl = pd.ExcelFile(file)
     sheets = {name.lower(): name for name in xl.sheet_names}
 
-    # Modifikasi df_or_empty untuk menerima rename_map
     def df_or_empty(key, cols, rename_map=None):
         if key in sheets:
             df = xl.parse(sheets[key])
             df.columns = [c.strip() for c in df.columns]
             if rename_map:
-                df = df.rename(columns=rename_map) # Rename dari B. Indo -> B. Inggris (internal)
+                df = df.rename(columns=rename_map) 
             for c in cols:
                 if c not in df.columns: df[c] = None
             
@@ -930,7 +852,6 @@ def import_bulk_excel(file) -> dict:
             
         return pd.DataFrame(columns=cols)
 
-    # Definisikan Peta Pembalikan (Header B. Indo -> Nama Internal)
     MAP_PAT = {
         "Nama Lengkap": "full_name", "Tempat Lahir": "birth_place", "Tanggal Lahir": "birth_date", "NIK": "nik",
         "Gol. Darah": "blood_group", "Rhesus": "rhesus", "Jenis Kelamin": "gender", "Pekerjaan": "occupation",
@@ -966,9 +887,7 @@ def import_bulk_excel(file) -> dict:
         "Primary": "is_primary", "patient_id": "patient_id"
     }
 
-    # Gunakan nama internal (B. Inggris) untuk pat_cols
     pat_cols_internal = ["full_name","birth_place","birth_date","nik","blood_group","rhesus","gender","occupation", "education", "address","phone","province","city","note", "village", "district", "cabang", "kota_cakupan"]
-    # Baca sheet "pasien" (lowercase dari "Pasien") dan terapkan map
     df_pat = df_or_empty("pasien", pat_cols_internal, MAP_PAT)
     inserted_patients = []
     
@@ -977,18 +896,16 @@ def import_bulk_excel(file) -> dict:
     df_hmhi_lookup = fetch_hmhi_branches() 
     
     for _, r in df_pat[df_pat["full_name"].notna()].iterrows():
-        # --- FIX 1: Lewati baris instruksi/catatan di Excel ---
         raw_name = _safe_str(r.get("full_name"))
         if not raw_name or raw_name.lower().startswith("catatan:"):
             continue
 
-        # --- FIX 2: Bersihkan NIK dari format float (hapus .0) ---
         raw_nik = r.get("nik")
         clean_nik = None
         if pd.notna(raw_nik):
             s_nik = str(raw_nik).strip()
             if s_nik.endswith(".0"):
-                s_nik = s_nik[:-2] # Hapus .0
+                s_nik = s_nik[:-2] 
             clean_nik = s_nik
 
         payload = {
@@ -1004,7 +921,6 @@ def import_bulk_excel(file) -> dict:
             "cabang": _safe_str(r.get("cabang")), "kota_cakupan": _safe_str(r.get("kota_cakupan")) 
         }
         
-        # Override cabang jika bukan admin
         if not is_admin_bulk and user_branch_bulk:
             payload["cabang"] = user_branch_bulk
             match_cabang = df_hmhi_lookup[df_hmhi_lookup['cabang'] == user_branch_bulk]
@@ -1013,7 +929,6 @@ def import_bulk_excel(file) -> dict:
             else:
                 payload["kota_cakupan"] = None 
         
-        # --- Validasi NIK Bulk ---
         if not payload["full_name"]:
             continue 
             
@@ -1025,7 +940,6 @@ def import_bulk_excel(file) -> dict:
         if len(nik_bulk) != 16:
             st.error(f"Gagal impor '{payload['full_name']}': NIK '{nik_bulk}' harus 16 digit (memiliki {len(nik_bulk)} digit).")
             continue 
-        # -------------------------
 
         pid = insert_patient(payload)
         inserted_patients.append((pid, payload["full_name"]))
@@ -1041,7 +955,6 @@ def import_bulk_excel(file) -> dict:
             except Exception: pass
         
         nm_val = row.get("full_name")
-        # --- FIX 3: Cegah crash jika Nama kosong (NoneType error) ---
         safe_nm = _safe_str(nm_val)
         if not safe_nm: 
             return None
@@ -1073,7 +986,7 @@ def import_bulk_excel(file) -> dict:
                              "treatment_type": _safe_str(r.get("treatment_type")), "care_services": _safe_str(r.get("care_services")), "frequency": _safe_str(r.get("frequency")), "dose": _safe_str(r.get("dose")),
                              "product": _safe_str(r.get("product")), "merk": _safe_str(r.get("merk"))
                          })
-                       ),
+                        ),
         "Kematian": ("kematian",
                        ["patient_id", "full_name", "cause_of_death", "year_of_death"],
                        MAP_DEATH,
@@ -1099,7 +1012,6 @@ def import_bulk_excel(file) -> dict:
                     insert_func(r, pid)
                     count += 1
                 except Exception as e:
-                    # Optional: Log the error for debugging
                     pass
         results[key] = count 
 
@@ -1109,51 +1021,40 @@ def import_bulk_excel(file) -> dict:
 # Fungsi Helper untuk UI
 # ------------------------------------------------------------------------------
 def get_safe_index(options, value):
-    """Mencari index dari value di options, return 0 jika tidak ada."""
     try:
         return options.index(value)
     except (ValueError, TypeError):
         return 0
 
 def clear_session_state(prefix):
-    """Menghapus semua key di session state yang berawalan `prefix`."""
     keys_to_del = [k for k in st.session_state if k.startswith(prefix)]
     for k in keys_to_del:
         del st.session_state[k]
 
 def auto_pick_latest_for_edit(df, state_key: str, table_fullname: str,
                               id_col: str = "id", order_cols: list[str] | None = None):
-    # Abaikan jika tidak ada data
     if df is None or getattr(df, "empty", True):
         return
-    # Jangan override jika sudah ada record sedang diedit
     if st.session_state.get(state_key):
         return
-    # Tentukan kolom urut (DESC)
     order_cols = order_cols or [id_col]
     valid_cols = [c for c in order_cols if c in df.columns] or [id_col]
     df_sorted = df.sort_values(valid_cols, ascending=[False] * len(valid_cols))
     pick_id = int(df_sorted.iloc[0][id_col])
-    # Set state edit seperti pola tab Pasien
     set_editing_state(state_key, pick_id, table_fullname)
 
 def set_editing_state(state_key, data_id, table_name):
-    """Memuat data untuk diedit ke dalam session state."""
     if not data_id:
         return
     
-    # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
-    # Ini memastikan user tidak bisa mengedit data dari cabang lain
-    # dengan menebak ID (meskipun datanya tidak akan muncul di tabel)
     query = f"SELECT t.* FROM {table_name} t"
     
-    # Tambah join untuk filter by cabang jika tabelnya bukan patients
     if table_name != 'pwh.patients':
         query += " JOIN pwh.patients p ON t.patient_id = p.id"
         
     query += f" WHERE t.id = {int(data_id)};"
     
-    data = run_df_branch(query) # run_df_branch akan auto-filter
+    data = run_df_branch(query) 
     
     if not data.empty:
         st.session_state[state_key] = data.to_dict('records')[0]
@@ -1166,8 +1067,6 @@ def set_editing_state(state_key, data_id, table_name):
 # TABS (Form Input)
 # ------------------------------------------------------------------------------
 
-# --- PERUBAHAN: Mengembalikan ke Tab Statis ---
-# 1. Definisikan nama kanonis dan label tab
 TAB_MAP = {
     "Pasien": "🧑‍⚕️ Pasien",
     "Diagnosis": "🧬 Diagnosis",
@@ -1180,15 +1079,50 @@ TAB_MAP = {
     "Export": "⬇️ Export"
 }
 
-# 2. Buat tabs secara statis
-# Ini akan membuat "Pasien" selalu menjadi tab pertama
-# dan akan kembali ke tab ini setiap kali st.rerun() dipanggil
 tab_pat, tab_diag, tab_inh, tab_virus, tab_hospital, tab_death, tab_contacts, tab_view, tab_export = st.tabs(list(TAB_MAP.values()))
-# --- AKHIR PERUBAHAN ---
 
+
+# ==============================================================================
+# --- Blok Kode Umum untuk Semua Tab ---
+# ==============================================================================
+
+current_user_branch_for_cache = st.session_state.get("user_branch", None)
+
+df_all_patients = get_all_patients_for_selection(current_user_branch_for_cache)
+if not df_all_patients.empty:
+    patient_id_map = df_all_patients.set_index('id')['full_name'].to_dict()
+    patient_id_options = [None] + df_all_patients['id'].tolist()
+else:
+    patient_id_map = {}
+    patient_id_options = [None]
+
+def format_patient_name(patient_id):
+    if pd.isna(patient_id):
+        return "Pilih pasien..."
+    return patient_id_map.get(patient_id, "ID tidak ditemukan")
+
+# --- TAMBAHAN BARU: Fungsi untuk highlight warna merah pasien meninggal ---
+df_deceased_global = run_df_branch("SELECT patient_id FROM pwh.death")
+deceased_ids_global = df_deceased_global['patient_id'].tolist() if not df_deceased_global.empty else []
+
+def style_deceased_row(df_display, orig_df, id_col):
+    """Mewarnai baris menjadi merah jika pasien terdata meninggal."""
+    if orig_df.empty or df_display.empty:
+        return df_display
+    
+    # Buat mask per baris sesuai tabel awal (karena index bisa di-reset)
+    mask = orig_df[id_col].isin(deceased_ids_global).values
+    mask_series = pd.Series(mask, index=df_display.index)
+    
+    def highlight(row):
+        if mask_series.loc[row.name]:
+            return ['background-color: #ffcccc; color: #900000;'] * len(row)
+        return [''] * len(row)
+        
+    return df_display.style.apply(highlight, axis=1)
+# --- END TAMBAHAN BARU ---
 
 # Patient
-# Periksa apakah tab ini benar-benar di-render (tidak None)
 if tab_pat:
     with tab_pat:
         st.subheader("🧑‍⚕️ Tambah Data Pasien")
@@ -1199,15 +1133,13 @@ if tab_pat:
             st.info(f"Mode Edit untuk Pasien: {pat_data.get('full_name')} (ID: {pat_data.get('id')})")
             if st.button("❌ Batal Edit", key="cancel_pat_edit"):
                 clear_session_state('patient_to_edit')
-                clear_session_state('patient_matches') # Hapus juga hasil pencarian
-                # st.query_params["tab"] = "Pasien" # Dihapus
+                clear_session_state('patient_matches') 
                 st.rerun()
 
         df_wilayah_all = fetch_all_wilayah_details()
-        df_hmhi = fetch_hmhi_branches() # <-- PANGGIL FUNGSI BARU
+        df_hmhi = fetch_hmhi_branches() 
         occupations_list = fetch_occupations_list()
         
-        # --- PERUBAHAN DI SINI: Dapatkan status admin/cabang ---
         user_branch_form = st.session_state.get("user_branch", None)
         is_admin_form = (user_branch_form == "ALL" or not user_branch_form)
 
@@ -1245,7 +1177,6 @@ if tab_pat:
 
             address = st.text_area("Alamat", value=pat_data.get('address', ''))
 
-            # --- START: Logika Wilayah Autofill ---
             village_list = [""] + df_wilayah_all['full_display'].tolist()
             village_name, district_name, city_name, province_name = "", "", "", ""
             village_display_val = ""
@@ -1264,18 +1195,14 @@ if tab_pat:
 
             village_idx = get_safe_index(village_list, village_display_val)
 
-            # --- PERUBAHAN LAYOUT WILAYAH (START) ---
-            # Baris 1: Kelurahan (Input) dan Kecamatan (Display)
             col_vil, col_dis = st.columns(2)
             with col_vil:
-                # Ini adalah SATU-SATUNYA input Kelurahan
                 selected_village_display = st.selectbox(
-                    "Kelurahan/Desa (pilih ini untuk autofill)", # Label dipersingkat
+                    "Kelurahan/Desa (pilih ini untuk autofill)", 
                     village_list,
                     index=village_idx
                 )
             
-            # Logika autofill dipindahkan ke sini, *setelah* selectbox
             if selected_village_display:
                 match = df_wilayah_all[df_wilayah_all['full_display'] == selected_village_display]
                 if not match.empty:
@@ -1285,125 +1212,93 @@ if tab_pat:
                     province_name = match.iloc[0]['province_name']
 
             with col_dis:
-                # Tampilkan Kecamatan
                 st.text_input("Kecamatan (otomatis)", value=district_name, disabled=True)
             
-            # Baris 2: Kota/Kab dan Propinsi (Display)
             col_city, col_prov = st.columns(2)
             with col_city:
                 st.text_input("Kabupaten/Kota (otomatis)", value=city_name, disabled=True)
             with col_prov:
                 st.text_input("Propinsi (otomatis)", value=province_name, disabled=True)
-            # --- PERUBAHAN LAYOUT WILAYAH (END) ---
-            # --- END: Logika Wilayah Autofill ---
-
             
-            # --- START: Logika HMHI Cabang Autofill (BARU) ---
-            st.markdown("---") # Pemisah visual
+            st.markdown("---") 
             
             cabang_list = [""] + df_hmhi['cabang'].unique().tolist()
             kota_cakupan_val = ""
 
-            # --- PERUBAHAN DI SINI: Tentukan nilai default dan status disabled ---
             default_cabang = ""
             if pat_data:
                 default_cabang = pat_data.get('cabang') or ""
             elif not is_admin_form and user_branch_form:
-                # Jika BUKAN admin DAN BUKAN mode edit, paksakan branch user
                 default_cabang = user_branch_form
 
             cabang_idx = get_safe_index(cabang_list, default_cabang)
 
-            # Baris 3: HMHI Cabang (Input) dan Kota Cakupan (Display)
             col_cabang, col_cakupan = st.columns(2)
             with col_cabang:
                 selected_cabang = st.selectbox(
                     "HMHI Cabang",
                     cabang_list,
                     index=cabang_idx,
-                    disabled=(not is_admin_form) # <-- Dinonaktifkan jika bukan admin
+                    disabled=(not is_admin_form) 
                 )
 
-            # Logika Autoload Kota Cakupan
-            # Jika bukan admin, pastikan selected_cabang adalah branch user
             active_cabang = user_branch_form if not is_admin_form and user_branch_form else selected_cabang
             
             if active_cabang:
                 match_cabang = df_hmhi[df_hmhi['cabang'] == active_cabang]
                 if not match_cabang.empty:
-                    # Ambil kota cakupan, pastikan tidak null
                     kota_cakupan_val = match_cabang.iloc[0]['kota_cakupan'] or ""
-            elif pat_data and not active_cabang: # Jika tidak ada yg dipilih, tapi mode edit, isi data lama
+            elif pat_data and not active_cabang: 
                  kota_cakupan_val = pat_data.get('kota_cakupan', '')
             
             with col_cakupan:
                 st.text_input("Kota Cakupan Cabang (otomatis)", value=kota_cakupan_val, disabled=True)
-            # --- END: Logika HMHI Cabang Autofill (BARU) ---
-
 
             note = st.text_area("Catatan (opsional)", value=pat_data.get('note', ''))
 
             form_label = "💾 Perbarui Pasien" if pat_data else "💾 Simpan Pasien Baru"
             submitted = st.button(form_label, type="primary")
 
-        # ==============================================================
-        # --- START: BLOK VALIDASI NIK (PERBAIKAN) ---
-        # ==============================================================
         if submitted:
-            # --- PERBAIKAN: Validasi NIK ---
             nik_cleaned = (nik or "").strip()
             
             if not (full_name or "").strip():
                 st.error("Nama Lengkap wajib diisi.")
-            
-            # === TAMBAHAN VALIDASI DI SINI ===
             elif not (birth_place or "").strip():
                 st.error("Tempat Lahir wajib diisi.")
             elif not birth_date:
                 st.error("Tanggal Lahir wajib diisi.")
-            # =================================
-            
             elif not nik_cleaned:
                 st.error("NIK wajib diisi.")
             elif len(nik_cleaned) != 16:
                 st.error(f"NIK harus terdiri dari 16 digit. NIK yang Anda masukkan ({nik_cleaned}) memiliki {len(nik_cleaned)} digit.")
-            # --- AKHIR PERBAIKAN ---
             else:
                 payload = {
                     "full_name": full_name.strip(), "birth_place": (birth_place or "").strip() or None,
-                    "birth_date": birth_date, "nik": nik_cleaned, # Gunakan NIK yang sudah divalidasi
+                    "birth_date": birth_date, "nik": nik_cleaned, 
                     "blood_group": blood_group or None, "rhesus": rhesus or None,
                     "gender": gender or None,
                     "occupation": occupation or None, "education": education or None,
                     "address": (address or "").strip() or None,
                     "phone": (phone or "").strip() or None, 
-                    # -- Data dari Autofill Wilayah --
                     "province": (province_name or "").strip() or None,
                     "city": (city_name or "").strip() or None,
                     "district": (district_name or "").strip() or None,
                     "village": (village_name or "").strip() or None,
-                    # -- Data dari Autofill HMHI Cabang (BARU) --
                     "cabang": (selected_cabang or "").strip() or None,
                     "kota_cakupan": (kota_cakupan_val or "").strip() or None,
-                    # ------------------------
                     "note": (note or "").strip() or None
                 }
                 
-                # --- PERUBAHAN DI SINI: Override cabang jika bukan admin ---
                 if not is_admin_form and user_branch_form:
                     payload["cabang"] = user_branch_form
-                    # Set kota cakupan sesuai branch
                     match_cabang = df_hmhi[df_hmhi['cabang'] == user_branch_form]
                     if not match_cabang.empty:
                         payload["kota_cakupan"] = match_cabang.iloc[0]['kota_cakupan'] or None
                     else:
                         payload["kota_cakupan"] = None
                 
-                
                 if pat_data:
-                    # Logika update
-                    # --- PERUBAHAN DI SINI: Gunakan run_df_branch untuk cek duplikat ---
-                    # Ini memastikan cek duplikat hanya di dalam cabang user (kecuali admin)
                     q_check_nik = "SELECT id FROM pwh.patients WHERE nik = :nik AND id != :current_id"
                     existing_nik = run_df_branch(q_check_nik, {"nik": payload["nik"], "current_id": pat_data['id']})
                     q_check_name = "SELECT id FROM pwh.patients WHERE lower(full_name) = lower(:name) AND id != :current_id"
@@ -1417,15 +1312,12 @@ if tab_pat:
                         update_patient(pat_data['id'], payload)
                         st.success(f"Pasien dengan ID {pat_data['id']} berhasil diperbarui.")
                         fetch_all_wilayah_details.clear() 
-                        fetch_hmhi_branches.clear() # <-- Clear cache baru
+                        fetch_hmhi_branches.clear() 
                         get_all_patients_for_selection.clear()
                         clear_session_state('patient_to_edit')
                         clear_session_state('patient_matches')
-                        # st.query_params["tab"] = "Pasien" # Dihapus
                         st.rerun()
                 else:
-                    # Logika insert
-                    # --- PERUBAHAN DI SINI: Gunakan run_df_branch untuk cek duplikat ---
                     q_check_nik = "SELECT id FROM pwh.patients WHERE nik = :nik"
                     existing_nik = run_df_branch(q_check_nik, {"nik": payload["nik"]})
                     q_check_name = "SELECT id FROM pwh.patients WHERE lower(full_name) = lower(:name)"
@@ -1439,13 +1331,9 @@ if tab_pat:
                         pid = insert_patient(payload)
                         st.success(f"Pasien baru berhasil disimpan dengan ID: {pid}")
                         fetch_all_wilayah_details.clear()
-                        fetch_hmhi_branches.clear() # <-- Clear cache baru
+                        fetch_hmhi_branches.clear() 
                         get_all_patients_for_selection.clear()
-                        # st.query_params["tab"] = "Pasien" # Dihapus
                         st.rerun()
-        # ==============================================================
-        # --- END: BLOK VALIDASI NIK (PERBAIKAN) ---
-        # ==============================================================
 
         st.markdown("---")
         st.markdown("### 📋 Data Pasien Terbaru")
@@ -1455,7 +1343,6 @@ if tab_pat:
         if st.button("Cari Pasien", key="search_pat_button"):
             clear_session_state('patient_to_edit') 
             if search_name_pat:
-                # --- PERUBAHAN DI SINI: Gunakan run_df_branch ---
                 results_df = run_df_branch("SELECT id, full_name, birth_date FROM pwh.patients WHERE full_name ILIKE :name", {"name": f"%{search_name_pat}%"})
                 if results_df.empty:
                     st.warning("Pasien tidak ditemukan (di cabang Anda).")
@@ -1463,7 +1350,6 @@ if tab_pat:
                 elif len(results_df) == 1:
                     set_editing_state('patient_to_edit', results_df.iloc[0]['id'], 'pwh.patients')
                     clear_session_state('patient_matches')
-                    # st.query_params["tab"] = "Pasien" # Dihapus
                     st.rerun()
                 else:
                     st.info(f"Ditemukan {len(results_df)} pasien dengan nama serupa. Silakan pilih satu.")
@@ -1481,10 +1367,8 @@ if tab_pat:
                 selected_id = options[selected_option]
                 set_editing_state('patient_to_edit', selected_id, 'pwh.patients')
                 clear_session_state('patient_matches')
-                # st.query_params["tab"] = "Pasien" # Dihapus
                 st.rerun()
 
-        # --- PERUBAHAN DI SINI: run_df_branch sudah otomatis memfilter ---
         dfp = run_df_branch("""
     SELECT
         p.id,
@@ -1510,7 +1394,6 @@ if tab_pat:
     FROM pwh.patients p
     LEFT JOIN pwh.patient_age pa ON pa.id = p.id
     ORDER BY p.id DESC;
-
     """)
         
         if not dfp.empty:
@@ -1525,34 +1408,12 @@ if tab_pat:
             dfp_display.index.name = "No."
             
             st.write(f"Total Data Pasien (di cabang Anda): **{len(dfp_display)}**")
-            st.dataframe(_alias_df(dfp_display, ALIAS_PATIENTS), use_container_width=True)
+            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
+            styled_dfp = style_deceased_row(_alias_df(dfp_display, ALIAS_PATIENTS), dfp, 'id')
+            st.dataframe(styled_dfp, use_container_width=True)
+            # --- END PERUBAHAN ---
         else:
             st.info("Belum ada data pasien (di cabang Anda).")
-
-# ==============================================================================
-# --- Blok Kode Umum untuk Semua Tab Lainnya ---
-# ==============================================================================
-
-# --- PERBAIKAN: Ambil status user SAAT INI untuk cache ---
-current_user_branch_for_cache = st.session_state.get("user_branch", None)
-
-# Ambil data pasien sekali saja untuk semua tab
-# --- PERUBAHAN DI SINI: get_all_patients_for_selection() sudah difilter ---
-# --- PERBAIKAN: Masukkan user_branch agar cache-nya dinamis ---
-df_all_patients = get_all_patients_for_selection(current_user_branch_for_cache)
-if not df_all_patients.empty:
-    patient_id_map = df_all_patients.set_index('id')['full_name'].to_dict()
-    patient_id_options = [None] + df_all_patients['id'].tolist()
-else:
-    patient_id_map = {}
-    patient_id_options = [None]
-
-
-def format_patient_name(patient_id):
-    """Fungsi untuk menampilkan nama pasien di selectbox."""
-    if pd.isna(patient_id):
-        return "Pilih pasien..."
-    return patient_id_map.get(patient_id, "ID tidak ditemukan")
 
 # ==============================================================================
 # Diagnosis
@@ -1567,15 +1428,13 @@ if tab_diag:
             if st.button("❌ Batal Edit", key="cancel_diag_edit"):
                 clear_session_state('diag_to_edit')
                 clear_session_state('diag_matches')
-                # st.query_params["tab"] = "Diagnosis" # Dihapus
                 st.rerun()
 
-        # Tentukan pilihan default jika dalam mode edit
         default_patient_id = diag_data.get('patient_id') if diag_data else None
         
         pid_diag = st.selectbox(
             "Pilih Pasien (untuk data baru)",
-            options=patient_id_options, # Dropdown ini sudah difilter
+            options=patient_id_options, 
             index=patient_id_options.index(default_patient_id) if default_patient_id in patient_id_options else 0,
             format_func=format_patient_name,
             key="diag_patient_selector",
@@ -1583,12 +1442,9 @@ if tab_diag:
         )
 
         with st.form("diag::form", clear_on_submit=False):
-            # --- UPDATE: Tambahkan opsi kosong di awal agar user 'terpaksa' memilih ---
-            # Kita buat copy list agar list global tidak terubah
             hemo_opts = [""] + [h for h in HEMO_TYPES if h]
             sev_opts = [""] + [s for s in SEVERITY_CHOICES if s]
 
-            # Cari index yang aman (handle jika value existing tidak ada di list baru)
             curr_hemo = diag_data.get('hemo_type', '')
             curr_sev = diag_data.get('severity', '')
             
@@ -1606,16 +1462,12 @@ if tab_diag:
             sdiag = st.form_submit_button(f"💾 {sdiag_label}", type="primary")
 
         if sdiag:
-            # --- VALIDASI 1: Mandatory Fields ---
             if not hemo_type:
                 st.error("Tipe Hemofilia wajib dipilih.")
             elif not severity:
                 st.error("Kategori wajib dipilih.")
             else:
-                # --- VALIDASI 2: Unique Check (Hanya boleh 1 tipe per pasien) ---
                 if diag_data:
-                    # LOGIKA UPDATE
-                    # Cek apakah tipe ini sudah dipakai oleh record LAIN milik pasien yang sama
                     q_check = """
                         SELECT id FROM pwh.hemo_diagnoses 
                         WHERE patient_id = :pid AND hemo_type = :htype AND id != :current_id
@@ -1636,8 +1488,6 @@ if tab_diag:
                         st.rerun()
 
                 elif pid_diag:
-                    # LOGIKA INSERT BARU
-                    # Cek apakah pasien sudah punya tipe ini
                     q_check = """
                         SELECT id FROM pwh.hemo_diagnoses 
                         WHERE patient_id = :pid AND hemo_type = :htype
@@ -1725,7 +1575,10 @@ if tab_diag:
             df_diag_display.index = range(1, len(df_diag_display) + 1)
             df_diag_display.index.name = "No."
             st.write(f"Total Data Diagnosis: **{len(df_diag_display)}**")
-            st.dataframe(_alias_df(df_diag_display, ALIAS_DIAG), use_container_width=True)
+            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
+            styled_df_diag = style_deceased_row(_alias_df(df_diag_display, ALIAS_DIAG), df_diag, 'patient_id')
+            st.dataframe(styled_df_diag, use_container_width=True)
+            # --- END PERUBAHAN ---
         else:
             st.info("Tidak ada data diagnosis untuk ditampilkan. Cari nama pasien di atas untuk memfilter.")
 
@@ -1796,19 +1649,11 @@ if tab_inh:
                 """
                 results_df = run_df_branch(q, {"name": f"%{search_name_inh}%"})
 
-                # ==============================================================
-                # --- START PERUBAHAN LOGIKA DI SINI ---
-                # ==============================================================
                 if results_df.empty:
                     st.warning("Riwayat inhibitor tidak ditemukan (di cabang Anda).")
                 else:
-                    # SELALU tampilkan selectbox jika 1 ATAU LEBIH data ditemukan
                     st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu untuk diedit/dihapus.")
                     st.session_state.inh_matches = results_df
-                    # JANGAN st.rerun() di sini
-                # ==============================================================
-                # --- END PERUBAHAN LOGIKA ---
-                # ==============================================================
                     
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
@@ -1855,7 +1700,10 @@ if tab_inh:
             df_inh_display.index = range(1, len(df_inh_display) + 1)
             df_inh_display.index.name = "No."
             st.write(f"Total Data Inhibitor: **{len(df_inh_display)}**")
-            st.dataframe(_alias_df(df_inh_display, ALIAS_INH), use_container_width=True)
+            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
+            styled_df_inh = style_deceased_row(_alias_df(df_inh_display, ALIAS_INH), df_inh, 'patient_id')
+            st.dataframe(styled_df_inh, use_container_width=True)
+            # --- END PERUBAHAN ---
         else:
             st.info("Tidak ada data inhibitor untuk ditampilkan.")
 
@@ -1927,19 +1775,11 @@ if tab_virus:
                 """
                 results_df = run_df_branch(q, {"name": f"%{search_name_virus}%"})
 
-                # ==============================================================
-                # --- START PERUBAHAN LOGIKA DI SINI ---
-                # ==============================================================
                 if results_df.empty:
                     st.warning("Riwayat tes virus tidak ditemukan (di cabang Anda).")
                 else:
-                    # SELALU tampilkan selectbox jika 1 ATAU LEBIH data ditemukan
                     st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu untuk diedit/dihapus.")
                     st.session_state.virus_matches = results_df
-                    # JANGAN st.rerun() di sini
-                # ==============================================================
-                # --- END PERUBAHAN LOGIKA ---
-                # ==============================================================
                     
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
@@ -1989,7 +1829,10 @@ if tab_virus:
             df_virus_display.index = range(1, len(df_virus_display) + 1)
             df_virus_display.index.name = "No."
             st.write(f"Total Data Tes Virus: **{len(df_virus_display)}**")
-            st.dataframe(_alias_df(df_virus_display, ALIAS_VIRUS), use_container_width=True)
+            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
+            styled_df_virus = style_deceased_row(_alias_df(df_virus_display, ALIAS_VIRUS), df_virus, 'patient_id')
+            st.dataframe(styled_df_virus, use_container_width=True)
+            # --- END PERUBAHAN ---
         else:
             st.info("Tidak ada data tes virus untuk ditampilkan.")
 
@@ -2094,19 +1937,11 @@ if tab_hospital:
                 """
                 results_df = run_df_branch(q, {"name": f"%{search_name_hosp}%"})
 
-                # ==============================================================
-                # --- START PERUBAHAN LOGIKA DI SINI ---
-                # ==============================================================
                 if results_df.empty:
                     st.warning("Riwayat penanganan RS tidak ditemukan (di cabang Anda).")
                 else:
-                    # SELALU tampilkan selectbox jika 1 ATAU LEBIH data ditemukan
                     st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu untuk diedit/dihapus.")
                     st.session_state.hosp_matches = results_df
-                    # JANGAN st.rerun() di sini
-                # ==============================================================
-                # --- END PERUBAHAN LOGIKA ---
-                # ==============================================================
                     
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
@@ -2155,7 +1990,10 @@ if tab_hospital:
             df_th_display.index = range(1, len(df_th_display) + 1)
             df_th_display.index.name = "No."
             st.write(f"Total Data Penanganan: **{len(df_th_display)}**")
-            st.dataframe(_alias_df(df_th_display, ALIAS_HOSPITAL), use_container_width=True)
+            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
+            styled_df_th = style_deceased_row(_alias_df(df_th_display, ALIAS_HOSPITAL), df_th, 'patient_id')
+            st.dataframe(styled_df_th, use_container_width=True)
+            # --- END PERUBAHAN ---
         else:
             st.info("Tidak ada data penanganan RS untuk ditampilkan.")
 
@@ -2187,14 +2025,13 @@ if tab_death:
             cause_of_death = st.text_area("Penyebab Kematian", value=death_data.get('cause_of_death', ''))
             current_year = date.today().year
             year_of_death_val = death_data.get('year_of_death')
-            # Fix: Pastikan value adalah integer yang valid untuk number_input
             if year_of_death_val:
                 try:
                     year_of_death_val = int(year_of_death_val)
                 except (ValueError, TypeError):
-                    year_of_death_val = current_year # fallback
+                    year_of_death_val = current_year 
             else:
-                 year_of_death_val = current_year # fallback jika None
+                 year_of_death_val = current_year 
 
             year_of_death = st.number_input("Tahun Kematian", min_value=1900, max_value=current_year, value=year_of_death_val, step=1)
             
@@ -2237,17 +2074,11 @@ if tab_death:
                 """
                 results_df = run_df_branch(q, {"name": f"%{search_name_death}%"})
                 
-                # ==============================================================
-                # --- LOGIKA UNTUK TAB KEMATIAN (SUDAH BENAR) ---
-                # ==============================================================
                 if results_df.empty:
                     st.warning("Data kematian tidak ditemukan (di cabang Anda).")
                 else:
-                    # Selalu set 'matches' meskipun hanya ada 1
                     st.info(f"Ditemukan 1 data kematian. Pilih untuk edit/hapus.")
                     st.session_state.death_matches = results_df
-                    # JANGAN st.rerun() di sini
-                # ==============================================================
                 
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
@@ -2295,7 +2126,10 @@ if tab_death:
             df_death_display.index = range(1, len(df_death_display) + 1)
             df_death_display.index.name = "No."
             st.write(f"Total Data Kematian: **{len(df_death_display)}**")
-            st.dataframe(_alias_df(df_death_display, ALIAS_DEATH), use_container_width=True)
+            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
+            styled_df_death = style_deceased_row(_alias_df(df_death_display, ALIAS_DEATH), df_death, 'patient_id')
+            st.dataframe(styled_df_death, use_container_width=True)
+            # --- END PERUBAHAN ---
         else:
             st.info("Tidak ada data kematian untuk ditampilkan.")
 
@@ -2371,19 +2205,11 @@ if tab_contacts:
                 """
                 results_df = run_df_branch(q, {"name": f"%{search_name_cont}%"})
 
-                # ==============================================================
-                # --- START PERUBAHAN LOGIKA DI SINI ---
-                # ==============================================================
                 if results_df.empty:
                     st.warning("Kontak tidak ditemukan (di cabang Anda).")
                 else:
-                    # SELALU tampilkan selectbox jika 1 ATAU LEBIH data ditemukan
                     st.info(f"Ditemukan {len(results_df)} kontak. Silakan pilih satu untuk diedit/dihapus.")
                     st.session_state.contact_matches = results_df
-                    # JANGAN st.rerun() di sini
-                # ==============================================================
-                # --- END PERUBAHAN LOGIKA ---
-                # ==============================================================
                     
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
@@ -2430,7 +2256,10 @@ if tab_contacts:
             df_contacts_display.index = range(1, len(df_contacts_display) + 1)
             df_contacts_display.index.name = "No."
             st.write(f"Total Data Kontak: **{len(df_contacts_display)}**")
-            st.dataframe(_alias_df(df_contacts_display, ALIAS_CONTACTS), use_container_width=True)
+            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
+            styled_df_contacts = style_deceased_row(_alias_df(df_contacts_display, ALIAS_CONTACTS), df_contacts, 'patient_id')
+            st.dataframe(styled_df_contacts, use_container_width=True)
+            # --- END PERUBAHAN ---
         else:
             st.info("Tidak ada data kontak untuk ditampilkan.")
 
@@ -2449,7 +2278,6 @@ if tab_view:
             st.info("Belum ada data (di cabang Anda).")
         else:
             df_summary_display = df.copy()
-            # Sembunyikan data sensitif potensial
             sensitive_cols = ['Lahir: Tempat', 'Lahir: Tanggal', 'Alamat', 'No. Telp', 'Org Tua: Ayah', 'Org Tua: Ibu']
             for col in sensitive_cols:
                 if col in df_summary_display.columns:
@@ -2459,7 +2287,10 @@ if tab_view:
             df_summary_display.index = range(1, len(df_summary_display) + 1)
             df_summary_display.index.name = "No."
             st.write(f"Total Data Pasien (di cabang Anda): **{len(df_summary_display)}**")
-            st.dataframe(_alias_df(df_summary_display, ALIAS_SUMMARY), use_container_width=True)
+            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
+            styled_df_summary = style_deceased_row(_alias_df(df_summary_display, ALIAS_SUMMARY), df, 'id')
+            st.dataframe(styled_df_summary, use_container_width=True)
+            # --- END PERUBAHAN ---
             st.caption("View ini mengambil hasil terbaru per pasien (diagnosis A/B/vWD, inhibitor FVIII/FIX, dan tes HBsAg/Anti-HCV/HIV).")
 
 # Export
@@ -2492,7 +2323,6 @@ if tab_export:
                     result = import_bulk_excel(up) 
                     msg = "Import selesai — " + ", ".join(f"{k}: {v}" for k, v in result.items())
                     st.success(msg)
-                    # Clear cache setelah import bulk berhasil
                     fetch_all_wilayah_details.clear()
                     get_all_patients_for_selection.clear()
                     fetch_occupations_list.clear()
