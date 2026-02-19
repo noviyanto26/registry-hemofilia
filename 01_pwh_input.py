@@ -1398,6 +1398,12 @@ if tab_pat:
         
         if not dfp.empty:
             dfp_display = dfp.copy()
+            
+            # --- FIX: Hilangkan desimal pada kolom umur dengan casting ke Int64 ---
+            if 'age_years' in dfp_display.columns:
+                dfp_display['age_years'] = pd.to_numeric(dfp_display['age_years'], errors='coerce').astype('Int64')
+            # -----------------------------------------------------------------------
+            
             dfp_display['birth_place'] = dfp_display['birth_place'].apply(lambda x: '*****' if pd.notna(x) and str(x).strip() else x)
             dfp_display['birth_date'] = dfp_display['birth_date'].apply(lambda x: '*****' if pd.notna(x) else x)
             dfp_display['nik'] = dfp_display['nik'].apply(lambda x: '*****' if pd.notna(x) and str(x).strip() else x)
@@ -2283,6 +2289,10 @@ if tab_view:
                 if col in df_summary_display.columns:
                     df_summary_display[col] = '*****'
 
+            # --- FIX: Hilangkan desimal umur di tab Ringkasan ---
+            if 'Umur (tahun)' in df_summary_display.columns:
+                df_summary_display['Umur (tahun)'] = pd.to_numeric(df_summary_display['Umur (tahun)'], errors='coerce').astype('Int64')
+            # ----------------------------------------------------
             df_summary_display = df_summary_display.drop(columns=['id'], errors='ignore')
             df_summary_display.index = range(1, len(df_summary_display) + 1)
             df_summary_display.index.name = "No."
