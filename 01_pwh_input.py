@@ -1393,7 +1393,7 @@ if tab_pat:
         p.created_at
     FROM pwh.patients p
     LEFT JOIN pwh.patient_age pa ON pa.id = p.id
-    ORDER BY p.id DESC;
+    ORDER BY p.full_name ASC;
     """)
         
         if not dfp.empty:
@@ -1572,7 +1572,7 @@ if tab_diag:
         if 'diag_selected_patient_name' in st.session_state and st.session_state.diag_selected_patient_name:
             query_diag += " WHERE p.full_name ILIKE :name"
             params['name'] = f"%{st.session_state.diag_selected_patient_name}%"
-        query_diag += " ORDER BY d.id DESC;"
+        query_diag += " ORDER BY p.full_name ASC, d.id DESC;
         
         df_diag = run_df_branch(query_diag, params)
 
@@ -1697,7 +1697,7 @@ if tab_inh:
         if 'inh_selected_patient_name' in st.session_state and st.session_state.inh_selected_patient_name:
             query_inh += " WHERE p.full_name ILIKE :name"
             params_inh['name'] = f"%{st.session_state.inh_selected_patient_name}%"
-        query_inh += " ORDER BY i.id DESC LIMIT 500;"
+        query_inh += " ORDER BY p.full_name ASC, i.id DESC LIMIT 500;"
         
         df_inh = run_df_branch(query_inh, params_inh)
 
@@ -1823,7 +1823,7 @@ if tab_virus:
         if 'virus_selected_patient_name' in st.session_state and st.session_state.virus_selected_patient_name:
             query_virus += " WHERE p.full_name ILIKE :name"
             params_virus['name'] = f"%{st.session_state.virus_selected_patient_name}%"
-        query_virus += " ORDER BY v.id DESC LIMIT 500;"
+        query_virus += " ORDER BY p.full_name ASC, v.id DESC LIMIT 500;"
         
         df_virus = run_df_branch(query_virus, params_virus)
 
@@ -1987,7 +1987,7 @@ if tab_hospital:
         if 'hosp_selected_patient_name' in st.session_state and st.session_state.hosp_selected_patient_name:
             query_hosp += " WHERE p.full_name ILIKE :name"
             params_hosp['name'] = f"%{st.session_state.hosp_selected_patient_name}%"
-        query_hosp += " ORDER BY th.id DESC;"
+        query_hosp += " ORDER BY p.full_name ASC, th.id DESC;"
 
         df_th = run_df_branch(query_hosp, params_hosp)
         
@@ -2123,7 +2123,7 @@ if tab_death:
         if 'death_selected_patient_name' in st.session_state and st.session_state.death_selected_patient_name:
             query_death += " WHERE p.full_name ILIKE :name"
             params_death['name'] = f"%{st.session_state.death_selected_patient_name}%"
-        query_death += " ORDER BY d.id DESC;"
+        query_death += " ORDER BY p.full_name ASC, d.id DESC;"
         
         df_death = run_df_branch(query_death, params_death)
 
@@ -2253,7 +2253,7 @@ if tab_contacts:
         if 'cont_selected_patient_name' in st.session_state and st.session_state.cont_selected_patient_name:
             query_cont += " WHERE p.full_name ILIKE :name"
             params_cont['name'] = f"%{st.session_state.cont_selected_patient_name}%"
-        query_cont += " ORDER BY c.id DESC LIMIT 500;"
+        query_cont += " ORDER BY p.full_name ASC, c.id DESC LIMIT 500;"
         
         df_contacts = run_df_branch(query_cont, params_cont)
 
@@ -2277,7 +2277,7 @@ if tab_view:
         df = run_df_branch("""
             SELECT s.* FROM pwh.patient_summary s
             JOIN pwh.patients p ON s.id = p.id
-            ORDER BY s.id DESC;
+            ORDER BY p.full_name ASC;
         """)
         
         if df.empty:
