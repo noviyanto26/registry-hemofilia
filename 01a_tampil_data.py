@@ -130,7 +130,7 @@ def process_patient_data(df_raw):
     processed_list = []
     
     # Group by ID Pasien
-    grouped = df_raw.groupby('patient_id')
+    grouped = df_raw.groupby('patient_id', sort=False)
 
     for pid, group in grouped:
         row_dict = {}
@@ -323,3 +323,4 @@ try:
 
 except Exception as e:
     st.error(f"Terjadi kesalahan sistem: {e}")
+
