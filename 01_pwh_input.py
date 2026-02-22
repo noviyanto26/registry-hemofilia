@@ -339,6 +339,12 @@ def build_bulk_template_bytes() -> bytes:
 
 st.title("🩸 Form Input Penyandang Hemofilia")
 
+# --- TAMBAHAN: Tombol Refresh Cache ---
+if st.button("🔄 Refresh Data"):
+    st.cache_data.clear() # Membersihkan semua st.cache_data
+    st.rerun() # Memuat ulang aplikasi
+# --------------------------------------
+
 # ------------------------------------------------------------------------------
 # KONEKSI DATABASE
 # ------------------------------------------------------------------------------
@@ -519,7 +525,7 @@ def fetch_hospitals() -> list[str]:
         pass
     return ["", "RSUPN Dr. Cipto Mangunkusumo - Jakarta Pusat - DKI Jakarta", "RS Kanker Dharmais - Jakarta Barat - DKI Jakarta"]
 
-# @st.cache_data(show_spinner="Memuat daftar pasien...")
+@st.cache_data(show_spinner="Memuat daftar pasien...")
 def get_all_patients_for_selection(user_branch: str | None): 
     return run_df_branch("SELECT id, full_name FROM pwh.patients ORDER BY full_name;")
 
