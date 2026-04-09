@@ -432,10 +432,19 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
 # Helper eksekusi (Hanya untuk INSERT/UPDATE)
 # ------------------------------------------------------------------------------
 def run_exec(sql: str, params: dict | None = None):
-    with engine.connect() as conn:
-        conn.execute(text(sql), params or {})
-        conn.commit()
-
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(sql), params or {})
+            conn.commit()
+    except IntegrityError as e:
+        # Menangkap error khusus untuk duplikat NIK
+        if "unique_nik" in str(e):
+            st.error("Gagal menyimpan data: NIK yang Anda masukkan sudah terdaftar pada sistem. Silakan periksa kembali NIK pasien.")
+            st.stop() # Menghentikan eksekusi lebih lanjut agar tidak crash
+        else:
+            # Tampilkan pesan error lain jika ada constraint yang berbeda
+            st.error(f"Gagal menyimpan data ke database: {e}")
+            st.stop()
 # ------------------------------------------------------------------------------
 # Ambil data referensi dari DB
 # ------------------------------------------------------------------------------
