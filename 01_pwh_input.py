@@ -167,8 +167,10 @@ ORDER BY p.id
         for sheet, df_sheet in sheet_map.items():
             ws = writer.sheets[sheet]
             for col_idx, col_name in enumerate(df_sheet.columns):
-                max_len = max((df_sheet[col_name].astype(str).map(len).max() if not df_sheet.empty else 0),
-                                      len(str(col_name)))
+                # PERBAIKAN: Menggunakan lambda str(x) yang lebih aman untuk menghindari error float
+                max_len_data = df_sheet[col_name].map(lambda x: len(str(x))).max() if not df_sheet.empty else 0
+                max_len = max(max_len_data, len(str(col_name)))
+                
                 ws.set_column(col_idx, col_idx, min(max_len + 2, 50))
     return output.getvalue()
 
