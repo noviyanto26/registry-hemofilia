@@ -1381,8 +1381,8 @@ if tab_pat:
         st.markdown("---")
         st.markdown("### 📋 Data Pasien Terbaru")
 
-        st.write("**Edit Data Pasien**")
-        search_name_pat = st.text_input("Ketik nama pasien untuk diedit", key="search_name_pat")
+        st.write("**Edit atau Hapus Data Pasien**")
+        search_name_pat = st.text_input("Ketik nama pasien untuk diedit atau dihapus", key="search_name_pat")
         if st.button("Cari Pasien", key="search_pat_button"):
             clear_session_state('patient_to_edit') 
             if search_name_pat:
