@@ -1402,30 +1402,33 @@ if tab_pat:
                 clear_session_state('patient_matches')
 
         if 'patient_matches' in st.session_state and not st.session_state.patient_matches.empty:
-        df_matches = st.session_state.patient_matches
-        options = {f"{row['full_name']} (Lahir: {row['birth_date']})": row['id'] for _, row in df_matches.iterrows()}
-        selected_option = st.selectbox("Pilih pasien yang akan diedit/dihapus:", options.keys(), key="select_pat_box")
-        
-        c_edit, c_del, c_spacer = st.columns([1, 1, 2])
-        with c_edit:
-            if st.button("📝 Edit Pasien Ini", key="select_pat_button"):
-                selected_id = options[selected_option]
-                set_editing_state('patient_to_edit', selected_id, 'pwh.patients')
-                clear_session_state('patient_matches')
-                st.rerun()
-                
-        with c_del:
-            if st.button("❌ Hapus Pasien Ini", key="delete_pat_button"):
-                selected_id = options[selected_option]
-                try:
-                    # Panggil fungsi hapus yang baru dibuat
-                    delete_patient(selected_id)
-                    st.success(f"Pasien dengan ID {selected_id} beserta seluruh data riwayatnya berhasil dihapus.")
+            df_matches = st.session_state.patient_matches
+            options = {f"{row['full_name']} (Lahir: {row['birth_date']})": row['id'] for _, row in df_matches.iterrows()}
+            selected_option = st.selectbox("Pilih pasien yang akan diedit/dihapus:", options.keys(), key="select_pat_box")
+
+            # Membuat kolom agar tombol Edit dan Hapus bisa bersebelahan
+            c_edit, c_del, c_spacer = st.columns([1, 1, 2])
+            with c_edit:
+                # 'if' di dalam 'with' juga harus menjorok ke dalam
+                if st.button("📝 Edit Pasien Ini", key="select_pat_button"):
+                    selected_id = options[selected_option]
+                    set_editing_state('patient_to_edit', selected_id, 'pwh.patients')
                     clear_session_state('patient_matches')
-                    clear_session_state('patient_to_edit')
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Gagal menghapus pasien ID {selected_id}: {e}")
+                
+            with c_del:
+                if st.button("❌ Hapus Pasien Ini", key="delete_pat_button"):
+                    selected_id = options[selected_option]
+                    try:
+                        # Panggil fungsi hapus yang baru dibuat
+                        delete_patient(selected_id)
+                        st.success(f"Pasien dengan ID {selected_id} beserta seluruh data riwayatnya berhasil dihapus.")
+                        clear_session_state('patient_matches')
+                        if st.session_state.get('patient_to_edit') == selected_id:
+                            clear_session_state('patient_to_edit')
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal menghapus pasien ID {selected_id}: {e}")
 
         dfp = run_df_branch("""
     SELECT
