@@ -814,6 +814,32 @@ def delete_contact(id: int):
         sql = "DELETE FROM pwh.contacts WHERE id = :id"
         run_exec(sql, params)
 
+def delete_patient(patient_id: int):
+    current_user_branch = st.session_state.get("user_branch", None)
+    is_admin = (current_user_branch == "ALL" or not current_user_branch)
+    params = {"patient_id": int(patient_id)}
+    
+    # Validasi cabang jika bukan admin
+    if not is_admin:
+        params["branch"] = current_user_branch
+        sql_check = "SELECT id FROM pwh.patients WHERE id = :patient_id AND cabang = :branch"
+        with engine.begin() as conn:
+            res = conn.execute(text(sql_check), params).scalar()
+            if not res:
+                raise Exception("Gagal menghapus: Data pasien tidak ditemukan di cabang Anda.")
+                
+    # Hapus data secara berurutan mulai dari tabel yang memiliki foreign key ke patient_id
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM pwh.contacts WHERE patient_id = :patient_id"), params)
+        conn.execute(text("DELETE FROM pwh.death WHERE patient_id = :patient_id"), params)
+        conn.execute(text("DELETE FROM pwh.hemo_diagnoses WHERE patient_id = :patient_id"), params)
+        conn.execute(text("DELETE FROM pwh.hemo_inhibitors WHERE patient_id = :patient_id"), params)
+        conn.execute(text("DELETE FROM pwh.treatment_hospital WHERE patient_id = :patient_id"), params)
+        conn.execute(text("DELETE FROM pwh.virus_tests WHERE patient_id = :patient_id"), params)
+        
+        # Terakhir hapus data utama di tabel patients
+        conn.execute(text("DELETE FROM pwh.patients WHERE id = :patient_id"), params)
+
 def insert_death_record(payload: dict):
     sql = "INSERT INTO pwh.death (patient_id, cause_of_death, year_of_death) VALUES (:patient_id, :cause_of_death, :year_of_death) ON CONFLICT (patient_id) DO UPDATE SET cause_of_death = EXCLUDED.cause_of_death, year_of_death = EXCLUDED.year_of_death;"
     run_exec(sql, payload)
