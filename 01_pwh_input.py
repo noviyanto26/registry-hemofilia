@@ -1193,7 +1193,26 @@ if tab_pat:
             with c1: birth_place = st.text_input("Tempat Lahir*", value=pat_data.get('birth_place', ''))
             with c2:
                 birth_date_val = pd.to_datetime(pat_data.get('birth_date')).date() if pd.notna(pat_data.get('birth_date')) else None
-                birth_date = st.date_input("Tanggal Lahir*", value=birth_date_val, format="YYYY-MM-DD", min_value=date(1920, 1, 1), max_value=date.today())
+                # Tentukan batas minimal dan maksimal
+                min_date_allowed = date(1920, 1, 1)
+                max_date_allowed = date.today()
+
+                # Mencegah crash jika ada data kotor (misal: tahun 0009) di database
+                safe_birth_date_val = birth_date_val
+                if safe_birth_date_val:
+                    if safe_birth_date_val < min_date_allowed:
+                        safe_birth_date_val = min_date_allowed # Jika tahun 9, akan digeser paksa ke 1920
+                    elif safe_birth_date_val > max_date_allowed:
+                        safe_birth_date_val = max_date_allowed
+
+                # Masukkan safe_birth_date_val ke dalam widget
+                birth_date = st.date_input(
+                    "Tanggal Lahir*", 
+                    value=safe_birth_date_val, 
+                    format="YYYY-MM-DD", 
+                    min_value=min_date_allowed, 
+                    max_value=max_date_allowed
+                )
             with c3:
                 nik = st.text_input("NIK*", value=pat_data.get('nik', ''), max_chars=16)
 
