@@ -141,12 +141,21 @@ def plot_graph(summary_df: pd.DataFrame) -> plt.Figure:
     return fig
 
 def convert_df_to_excel(df: pd.DataFrame, cabang: str = "Semua Cabang") -> bytes:
-    """Mengonversi DataFrame ke format Excel (xlsx) dengan menyertakan nama Cabang di bagian Header."""
+    """Mengonversi DataFrame ke format Excel (xlsx) dengan menambahkan kolom Cabang sebelum kelompok_usia."""
     output = io.BytesIO()
+    
+    # --- MODIFIKASI STRUKTUR DATAFRAME UNTUK EXCEL ---
+    df_excel = df.copy()
+    df_excel.index.name = 'Kelompok Usia'
+    df_excel = df_excel.reset_index() # Mengubah index menjadi kolom biasa
+    
+    # Menyisipkan kolom 'Cabang' di posisi pertama (indeks 0, sebelum Kelompok Usia)
+    df_excel.insert(0, 'Cabang', cabang)
+    
     # Menggunakan engine xlsxwriter
     with ExcelWriter(output, engine="xlsxwriter") as writer:
-        # Tulis dataframe mulai dari baris ke-4 (index 3) agar baris 0-2 bisa diisi komponen Header kustom
-        df.to_excel(writer, sheet_name="Rekapitulasi", index=True, startrow=3)
+        # Tulis dataframe dengan index=False karena kolom Cabang dan Kelompok Usia sudah diatur manual
+        df_excel.to_excel(writer, sheet_name="Rekapitulasi", index=False, startrow=3)
         
         workbook = writer.book
         ws = writer.sheets["Rekapitulasi"]
@@ -170,11 +179,9 @@ def convert_df_to_excel(df: pd.DataFrame, cabang: str = "Semua Cabang") -> bytes
         ws.write(1, 0, f"Cabang: {cabang}", subtitle_format)
         
         # Penyesuaian lebar kolom otomatis berdasarkan panjang konten teks
-        max_len_idx = max(df.index.astype(str).map(len).max(), len(df.index.name or "")) + 2
-        ws.set_column(0, 0, max_len_idx)
-        for col_idx, col_name in enumerate(df.columns, 1):
+        for col_idx, col_name in enumerate(df_excel.columns):
             max_len = max(
-                (df[col_name].astype(str).map(len).max() if not df.empty else 0),
+                df_excel[col_name].astype(str).map(len).max(),
                 len(str(col_name))
             ) + 2
             ws.set_column(col_idx, col_idx, min(max_len, 50))
