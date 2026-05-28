@@ -85,7 +85,6 @@ def get_age_group(age):
 
 def create_summary_table(df: pd.DataFrame) -> pd.DataFrame:
     """Membuat tabel rekapitulasi dengan mapping kolom yang benar."""
-    # Gunakan copy untuk menghindari SettingWithCopyWarning
     df = df.copy()
     df['hemo_category'] = df.apply(
         lambda row: f"{row['hemo_type']} - {row['severity']}" if pd.notna(row['severity']) else row['hemo_type'],
@@ -140,21 +139,13 @@ def plot_graph(summary_df: pd.DataFrame) -> plt.Figure:
     plt.tight_layout()
     return fig
 
-def convert_df_to_excel(df: pd.DataFrame, cabang: str = "Semua Cabang") -> bytes:
-    """Mengonversi DataFrame ke format Excel (xlsx) dengan menambahkan kolom Cabang sebelum kelompok_usia."""
+def convert_df_to_excel(df_excel: pd.DataFrame, cabang: str = "Semua Cabang") -> bytes:
+    """Mengonversi DataFrame yang sudah siap ke format Excel (xlsx) beserta komponen Headernya."""
     output = io.BytesIO()
-    
-    # --- MODIFIKASI STRUKTUR DATAFRAME UNTUK EXCEL ---
-    df_excel = df.copy()
-    df_excel.index.name = 'Kelompok Usia'
-    df_excel = df_excel.reset_index() # Mengubah index menjadi kolom biasa
-    
-    # Menyisipkan kolom 'Cabang' di posisi pertama (indeks 0, sebelum Kelompok Usia)
-    df_excel.insert(0, 'Cabang', cabang)
     
     # Menggunakan engine xlsxwriter
     with ExcelWriter(output, engine="xlsxwriter") as writer:
-        # Tulis dataframe dengan index=False karena kolom Cabang dan Kelompok Usia sudah diatur manual
+        # Tulis dataframe hasil olahan (index=False karena kolom Cabang dan Kelompok Usia sudah diatur di luar)
         df_excel.to_excel(writer, sheet_name="Rekapitulasi", index=False, startrow=3)
         
         workbook = writer.book
@@ -181,7 +172,7 @@ def convert_df_to_excel(df: pd.DataFrame, cabang: str = "Semua Cabang") -> bytes
         # Penyesuaian lebar kolom otomatis berdasarkan panjang konten teks
         for col_idx, col_name in enumerate(df_excel.columns):
             max_len = max(
-                df_excel[col_name].astype(str).map(len).max(),
+                df_excel[col_name].astype(str).map(len).max() if not df_excel.empty else 0,
                 len(str(col_name))
             ) + 2
             ws.set_column(col_idx, col_idx, min(max_len, 50))
@@ -191,30 +182,32 @@ def convert_df_to_excel(df: pd.DataFrame, cabang: str = "Semua Cabang") -> bytes
 # --- MAIN APP LOGIC ---
 db_url = _resolve_db_url()
 engine = get_engine(db_url)
-data_df = fetch_data_from_view(engine)
+raw_data_df = fetch_data_from_view(engine)
 
-if data_df.empty:
+if raw_data_df.empty:
     st.warning("Tidak ada data yang dapat ditampilkan dari database.")
 else:
-    if 'usia' in data_df.columns:
-        # Inisialisasi awal variabel filter cabang default
+    if 'usia' in raw_data_df.columns:
+        # Salinan data untuk proses filter tampilan web
+        data_df = raw_data_df.copy()
         selected_cabang = 'Semua Cabang'
         
         # --- LOGIKA FILTER CABANG ---
         if 'cabang' in data_df.columns:
-            # Ambil daftar cabang unik
+            # Ambil daftar cabang unik dari raw data
             list_cabang = ['Semua Cabang'] + sorted(data_df['cabang'].dropna().astype(str).unique().tolist())
             
             # Buat Selectbox
             selected_cabang = st.selectbox("🏥 Filter Berdasarkan Cabang:", list_cabang)
             
-            # Terapkan Filter
+            # Terapkan Filter untuk tampilan di screen
             if selected_cabang != 'Semua Cabang':
                 data_df = data_df[data_df['cabang'] == selected_cabang].copy()
         else:
             st.warning("Kolom 'cabang' tidak ditemukan dalam data.")
         # --- END LOGIKA FILTER ---
 
+        # Tampilan Web: Tambah kelompok usia & buat tabel ringkasan (nasional atau per cabang)
         data_df['kelompok_usia'] = data_df['usia'].apply(get_age_group)
         rekap_table = create_summary_table(data_df)
         
@@ -222,10 +215,39 @@ else:
         st.dataframe(rekap_table.style.apply(lambda x: ['background-color: #e8f4f8' if x.name == 'Total' else '' for i in x], axis=1)
                                     .apply(lambda x: ['background-color: #e8f4f8' if x.name == 'Total' else '' for i in x], axis=0))
 
-        # Melemparkan variabel selected_cabang ke fungsi convert excel
-        excel_data = convert_df_to_excel(rekap_table, selected_cabang)
+        # --- LOGIKA EKSPOR EXCEL (GABUNGAN DATA CABANG JIKA 'SEMUA CABANG') ---
+        if selected_cabang == 'Semua Cabang' and 'cabang' in raw_data_df.columns:
+            list_rekap_cabang = []
+            # Ambil semua cabang unik secara alfabetis (Bali s.d Sumatera Utara)
+            unique_branches = sorted(raw_data_df['cabang'].dropna().astype(str).unique().tolist())
+            
+            for cb in unique_branches:
+                df_cb = raw_data_df[raw_data_df['cabang'] == cb].copy()
+                if not df_cb.empty:
+                    df_cb['kelompok_usia'] = df_cb['usia'].apply(get_age_group)
+                    rekap_cb = create_summary_table(df_cb)
+                    
+                    # Transformasi index kelompok_usia menjadi kolom biasa
+                    rekap_cb.index.name = 'Kelompok Usia'
+                    rekap_cb = rekap_cb.reset_index()
+                    
+                    # Sisipkan nama cabang di kolom pertama sebelum 'Kelompok Usia'
+                    rekap_cb.insert(0, 'Cabang', cb)
+                    list_rekap_cabang.append(rekap_cb)
+            
+            # Gabungkan semua pecahan dataframe cabang menjadi satu kesatuan ke bawah
+            df_excel_final = pd.concat(list_rekap_cabang, ignore_index=True) if list_rekap_cabang else pd.DataFrame()
+        else:
+            # Jika memilih cabang tertentu, gunakan rekap cabang tersebut saja
+            df_excel_final = rekap_table.copy()
+            df_excel_final.index.name = 'Kelompok Usia'
+            df_excel_final = df_excel_final.reset_index()
+            df_excel_final.insert(0, 'Cabang', selected_cabang)
+
+        # Proses pembuatan file excel bytes
+        excel_data = convert_df_to_excel(df_excel_final, selected_cabang)
         
-        # Format nama file dinamis agar mencantumkan nama cabang (contoh: rekapitulasi_hemofilia_jakarta.xlsx)
+        # Format nama file dinamis agar mencantumkan nama cabang
         cabang_clean = selected_cabang.replace(" ", "_").lower()
         st.download_button(
             label=f"📥 Download Rekapitulasi (Excel) - {selected_cabang}",
