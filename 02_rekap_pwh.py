@@ -1,4 +1,3 @@
-# 02_rekap_pwh.py (Perbaikan Cache, Download Excel, dan Filter Cabang)
 import os
 import io
 import pandas as pd
@@ -86,6 +85,8 @@ def get_age_group(age):
 
 def create_summary_table(df: pd.DataFrame) -> pd.DataFrame:
     """Membuat tabel rekapitulasi dengan mapping kolom yang benar."""
+    # Gunakan copy untuk menghindari SettingWithCopyWarning
+    df = df.copy()
     df['hemo_category'] = df.apply(
         lambda row: f"{row['hemo_type']} - {row['severity']}" if pd.notna(row['severity']) else row['hemo_type'],
         axis=1
@@ -139,12 +140,36 @@ def plot_graph(summary_df: pd.DataFrame) -> plt.Figure:
     plt.tight_layout()
     return fig
 
-def convert_df_to_excel(df: pd.DataFrame) -> bytes:
-    """Mengonversi DataFrame ke format Excel (xlsx) untuk diunduh."""
+def convert_df_to_excel(df: pd.DataFrame, cabang: str = "Semua Cabang") -> bytes:
+    """Mengonversi DataFrame ke format Excel (xlsx) dengan menyertakan nama Cabang di bagian Header."""
     output = io.BytesIO()
+    # Menggunakan engine xlsxwriter
     with ExcelWriter(output, engine="xlsxwriter") as writer:
-        df.to_excel(writer, sheet_name="Rekapitulasi", index=True)
+        # Tulis dataframe mulai dari baris ke-4 (index 3) agar baris 0-2 bisa diisi komponen Header kustom
+        df.to_excel(writer, sheet_name="Rekapitulasi", index=True, startrow=3)
+        
+        workbook = writer.book
         ws = writer.sheets["Rekapitulasi"]
+        
+        # Atur format style kustom untuk judul laporan
+        title_format = workbook.add_format({
+            'bold': True,
+            'font_size': 14,
+            'font_name': 'Arial',
+            'font_color': '#1F4E78'
+        })
+        subtitle_format = workbook.add_format({
+            'bold': True,
+            'font_size': 11,
+            'font_name': 'Arial',
+            'font_color': '#333333'
+        })
+        
+        # Tulis teks kustom pada baris teratas file Excel
+        ws.write(0, 0, "REKAPITULASI PASIEN HEMOFILIA BERDASARKAN KELOMPOK USIA", title_format)
+        ws.write(1, 0, f"Cabang: {cabang}", subtitle_format)
+        
+        # Penyesuaian lebar kolom otomatis berdasarkan panjang konten teks
         max_len_idx = max(df.index.astype(str).map(len).max(), len(df.index.name or "")) + 2
         ws.set_column(0, 0, max_len_idx)
         for col_idx, col_name in enumerate(df.columns, 1):
@@ -165,6 +190,9 @@ if data_df.empty:
     st.warning("Tidak ada data yang dapat ditampilkan dari database.")
 else:
     if 'usia' in data_df.columns:
+        # Inisialisasi awal variabel filter cabang default
+        selected_cabang = 'Semua Cabang'
+        
         # --- LOGIKA FILTER CABANG ---
         if 'cabang' in data_df.columns:
             # Ambil daftar cabang unik
@@ -175,7 +203,7 @@ else:
             
             # Terapkan Filter
             if selected_cabang != 'Semua Cabang':
-                data_df = data_df[data_df['cabang'] == selected_cabang]
+                data_df = data_df[data_df['cabang'] == selected_cabang].copy()
         else:
             st.warning("Kolom 'cabang' tidak ditemukan dalam data.")
         # --- END LOGIKA FILTER ---
@@ -187,11 +215,15 @@ else:
         st.dataframe(rekap_table.style.apply(lambda x: ['background-color: #e8f4f8' if x.name == 'Total' else '' for i in x], axis=1)
                                     .apply(lambda x: ['background-color: #e8f4f8' if x.name == 'Total' else '' for i in x], axis=0))
 
-        excel_data = convert_df_to_excel(rekap_table)
+        # Melemparkan variabel selected_cabang ke fungsi convert excel
+        excel_data = convert_df_to_excel(rekap_table, selected_cabang)
+        
+        # Format nama file dinamis agar mencantumkan nama cabang (contoh: rekapitulasi_hemofilia_jakarta.xlsx)
+        cabang_clean = selected_cabang.replace(" ", "_").lower()
         st.download_button(
-            label="📥 Download Rekapitulasi (Excel)",
+            label=f"📥 Download Rekapitulasi (Excel) - {selected_cabang}",
             data=excel_data,
-            file_name='rekapitulasi_hemofilia.xlsx',
+            file_name=f'rekapitulasi_hemofilia_{cabang_clean}.xlsx',
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
         
