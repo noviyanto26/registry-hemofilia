@@ -141,11 +141,15 @@ def plot_gender_graph(summary_df: pd.DataFrame) -> plt.Figure:
 db_url = _resolve_db_url()
 if db_url:
     engine = get_engine(db_url)
-    data_df = fetch_data_for_gender(engine)
+    raw_data_df = fetch_data_for_gender(engine)
 
-    if data_df.empty:
+    if raw_data_df.empty:
         st.warning("Tidak ada data yang dapat ditampilkan dari database.")
     else:
+        # Salinan data untuk proses filter tampilan web
+        data_df = raw_data_df.copy()
+        selected_cabang = 'Semua Cabang'
+
         # --- MODIFIKASI: Filter Berdasarkan Cabang ---
         if 'cabang' in data_df.columns:
             # Ambil daftar cabang unik
@@ -156,10 +160,9 @@ if db_url:
             
             # Terapkan Filter
             if selected_cabang != 'Semua Cabang':
-                data_df = data_df[data_df['cabang'] == selected_cabang]
+                data_df = data_df[data_df['cabang'] == selected_cabang].copy()
         else:
             st.warning("Kolom 'cabang' tidak ditemukan dalam data.")
-            selected_cabang = "Semua Data"
         # --- END MODIFIKASI ---
 
         rekap_table = create_gender_summary_table(data_df)
@@ -167,16 +170,47 @@ if db_url:
         st.subheader(f"Tabel Rekapitulasi{' - ' + selected_cabang if 'cabang' in data_df.columns and selected_cabang != 'Semua Cabang' else ''}")
         st.dataframe(rekap_table, use_container_width=True)
 
-        # --- FUNGSI DOWNLOAD EXCEL ---
+        # --- LOGIKA EKSPOR EXCEL (MENAMBAHKAN CABANG KE KOLOM PERTAMA) ---
+        if selected_cabang == 'Semua Cabang' and 'cabang' in raw_data_df.columns:
+            list_rekap_cabang = []
+            # Ambil semua cabang unik secara alfabetis
+            unique_branches = sorted(raw_data_df['cabang'].dropna().astype(str).unique().tolist())
+            
+            for cb in unique_branches:
+                df_cb = raw_data_df[raw_data_df['cabang'] == cb].copy()
+                if not df_cb.empty:
+                    rekap_cb = create_gender_summary_table(df_cb)
+                    
+                    # Transformasi index Kategori menjadi kolom biasa
+                    rekap_cb.index.name = 'Kategori'
+                    rekap_cb = rekap_cb.reset_index()
+                    
+                    # Sisipkan nama cabang di kolom pertama
+                    rekap_cb.insert(0, 'Cabang', cb)
+                    list_rekap_cabang.append(rekap_cb)
+            
+            # Gabungkan semua pecahan dataframe cabang menjadi satu
+            df_excel_final = pd.concat(list_rekap_cabang, ignore_index=True) if list_rekap_cabang else pd.DataFrame()
+        else:
+            # Jika memilih cabang tertentu
+            df_excel_final = rekap_table.copy()
+            df_excel_final.index.name = 'Kategori'
+            df_excel_final = df_excel_final.reset_index()
+            df_excel_final.insert(0, 'Cabang', selected_cabang)
+
+        # Proses output ke bytes Excel
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            rekap_table.to_excel(writer, index=True, sheet_name='Rekapitulasi Gender')
+            # index=False karena Kategori sudah dijadikan kolom
+            df_excel_final.to_excel(writer, index=False, sheet_name='Rekapitulasi Gender')
         excel_data = output.getvalue()
 
+        # Format nama file dinamis dan sesuaikan nama tombol
+        cabang_clean = selected_cabang.replace(" ", "_").lower()
         st.download_button(
-           label="📥 Download Rekapitulasi (Excel)",
+           label=f"📥 Download Rekapitulasi (Excel) - {selected_cabang}",
            data=excel_data,
-           file_name='rekapitulasi_jenis_kelamin.xlsx',
+           file_name=f'rekapitulasi_jenis_kelamin_{cabang_clean}.xlsx',
            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
         
