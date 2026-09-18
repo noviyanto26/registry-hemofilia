@@ -84,30 +84,40 @@ def get_age_group(age):
     return ">45"
 
 def create_summary_table(df: pd.DataFrame) -> pd.DataFrame:
-    """Membuat tabel rekapitulasi dengan mapping kolom yang benar."""
+    """Membuat tabel rekapitulasi dengan mapping dan urutan perhitungan Total yang benar."""
     df = df.copy()
-    df['hemo_category'] = df.apply(
-        lambda row: f"{row['hemo_type']} - {row['severity']}" if pd.notna(row['severity']) else row['hemo_type'],
-        axis=1
-    )
     
+    # Standardisasi format teks (Case-insensitive) agar tidak ada kolom siluman
+    df['hemo_type'] = df['hemo_type'].astype(str).str.strip()
+    df['severity'] = df['severity'].astype(str).str.strip().str.title()
+    
+    def map_category(row):
+        htype = row['hemo_type']
+        sev = row['severity']
+        
+        # Standardisasi hemo_type menjadi prefix
+        if htype.upper() == 'A' or htype.lower() == 'hemofilia a':
+            prefix = "Hemofilia A"
+        elif htype.upper() == 'B' or htype.lower() == 'hemofilia b':
+            prefix = "Hemofilia B"
+        elif htype.lower() == 'vwd':
+            return 'vWD'
+        else:
+            return 'Hemofilia Tipe Lain'
+            
+        # Gabungkan dengan severity jika ada
+        if pd.notna(sev) and sev.lower() != 'nan' and sev != '':
+            return f"{prefix} - {sev}"
+        return prefix
+
+    df['hemo_category'] = df.apply(map_category, axis=1)
+    
+    # 1. Buat Pivot Table dasar
     summary = pd.pivot_table(
         df, index='kelompok_usia', columns='hemo_category', aggfunc='size', fill_value=0
     )
-
-    column_mapping = {
-        'A - Berat': 'Hemofilia A - Berat',
-        'A - Sedang': 'Hemofilia A - Sedang',
-        'A - Ringan': 'Hemofilia A - Ringan',
-        'B - Berat': 'Hemofilia B - Berat',
-        'B - Sedang': 'Hemofilia B - Sedang',
-        'B - Ringan': 'Hemofilia B - Ringan',
-        'Other': 'Hemofilia Tipe Lain',
-        'vWD': 'vWD'
-    }
     
-    summary.rename(columns=column_mapping, inplace=True)
-    
+    # 2. Definisikan dan paksakan HANYA kolom yang diinginkan (agar typo/kategori sisa tidak ikut dijumlah)
     desired_columns = [
         'Hemofilia A - Ringan', 'Hemofilia A - Sedang', 'Hemofilia A - Berat',
         'Hemofilia B - Ringan', 'Hemofilia B - Sedang', 'Hemofilia B - Berat',
@@ -117,12 +127,17 @@ def create_summary_table(df: pd.DataFrame) -> pd.DataFrame:
         if col not in summary.columns:
             summary[col] = 0
             
-    summary['Total'] = summary.sum(axis=1)
-    summary.loc['Total'] = summary.sum()
-    age_order = ['>45', '19-44', '14-18', '5-13', '0-4', 'Total']
+    summary = summary[desired_columns]
+    
+    # 3. Filter HANYA baris usia yang diinginkan (Membuang 'Unknown' sebelum hitung total)
+    age_order = ['>45', '19-44', '14-18', '5-13', '0-4']
     summary = summary.reindex(age_order).fillna(0).astype(int)
 
-    return summary[desired_columns + ['Total']]
+    # 4. Hitung Total setelah dimensi baris dan kolom dipastikan bersih
+    summary['Total'] = summary.sum(axis=1)
+    summary.loc['Total'] = summary.sum()
+
+    return summary
 
 def plot_graph(summary_df: pd.DataFrame) -> plt.Figure:
     """Membuat grafik batang dari data rekapitulasi."""
