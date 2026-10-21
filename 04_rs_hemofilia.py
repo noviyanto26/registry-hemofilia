@@ -234,6 +234,16 @@ if db_url:
 
         # Tampilan Tabel & Statistik
         st.header(f"Tabel Data Rumah Sakit ({len(df_filtered)} data ditemukan)")
+        
+        # --- [MODIFIKASI] Tombol Download untuk Tab 1 ditambahkan di sini ---
+        st.download_button(
+            label="📥 Download Data Dashboard",
+            data=_to_excel_bytes(alias_for_display(df_filtered), sheet_name="Data_Dashboard"),
+            file_name="data_dashboard_rs.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        # -------------------------------------------------------------------
+
         st.dataframe(alias_for_display(df_filtered), use_container_width=True, hide_index=True)
 
         st.header("Statistik Singkat (dari keseluruhan data)")
