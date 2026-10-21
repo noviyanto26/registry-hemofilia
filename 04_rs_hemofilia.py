@@ -166,9 +166,24 @@ DISPLAY_COL_ORDER = [
     "terdapat_dokter_hematologi",
     "terdapat_tim_terpadu_hemofilia",
 ]
+
 def alias_for_display(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Menyiapkan DataFrame untuk tampilan:
+    1. Memilih kolom yang ingin ditampilkan.
+    2. Menerjemahkan nilai boolean (True/False) menjadi 'Ada'/'Tidak Ada'.
+    3. Mengubah nama kolom menggunakan dictionary alias.
+    """
     cols = [c for c in DISPLAY_COL_ORDER if c in df.columns]
     view = df[cols].copy() if cols else df.copy()
+
+    # --- [MODIFIKASI] Ubah nilai True/False menjadi 'Ada'/'Tidak Ada' ---
+    boolean_cols = ["terdapat_dokter_hematologi", "terdapat_tim_terpadu_hemofilia"]
+    for col in boolean_cols:
+        if col in view.columns:
+            view[col] = view[col].map({True: 'Ada', False: 'Tidak Ada'})
+    # ----------------------------------------------------------------------
+
     return view.rename(columns={k: v for k, v in COL_ALIAS.items() if k in view.columns})
 
 # --- TAMPILAN APLIKASI ---
@@ -235,7 +250,7 @@ if db_url:
         # Tampilan Tabel & Statistik
         st.header(f"Tabel Data Rumah Sakit ({len(df_filtered)} data ditemukan)")
         
-        # --- [MODIFIKASI] Tombol Download untuk Tab 1 ditambahkan di sini ---
+        # --- Tombol Download untuk Tab 1 ditambahkan di sini ---
         st.download_button(
             label="📥 Download Data Dashboard",
             data=_to_excel_bytes(alias_for_display(df_filtered), sheet_name="Data_Dashboard"),
