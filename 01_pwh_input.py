@@ -1239,7 +1239,6 @@ if tab_pat:
 
             address = st.text_area("Alamat", value=pat_data.get('address', ''))
 
-            village_list = [""] + df_wilayah_all['full_display'].tolist()
             village_name, district_name, city_name, province_name = "", "", "", ""
             village_display_val = ""
             if pat_data:
@@ -1254,6 +1253,19 @@ if tab_pat:
                     district_name = d or ""
                     city_name = c or ""
                     province_name = p or ""
+
+            # --- PERBAIKAN: Filter data wilayah dengan text_input ---
+            search_desa = st.text_input("🔍 Cari Kelurahan/Desa (ketik minimal 3 huruf)", "")
+
+            # Hanya memuat list jika user mengetik sesuatu, atau jika sedang mode edit
+            if len(search_desa) >= 3:
+                filtered_df = df_wilayah_all[df_wilayah_all['full_display'].str.contains(search_desa, case=False, na=False)]
+                village_list = [""] + filtered_df['full_display'].tolist()
+            elif village_display_val:
+                village_list = ["", village_display_val]
+            else:
+                village_list = [""]
+            # --------------------------------------------------------
 
             village_idx = get_safe_index(village_list, village_display_val)
 
