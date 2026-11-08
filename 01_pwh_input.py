@@ -1385,6 +1385,13 @@ if tab_pat:
                     else:
                         update_patient(pat_data['id'], payload)
                         st.success(f"Pasien dengan ID {pat_data['id']} berhasil diperbarui.")
+
+                        # --- TAMBAHAN: Auto-input diagnosis jika belum ada ---
+                        cek_diag = run_df_branch("SELECT id FROM pwh.hemo_diagnoses WHERE patient_id = :pid", {"pid": pat_data['id']})
+                        if cek_diag.empty:
+                            insert_diagnosis(pat_data['id'], "Other", "Tidak diketahui", None, "Auto-input sistem")
+                        # -----------------------------------------------------
+                        
                         fetch_all_wilayah_details.clear() 
                         fetch_hmhi_branches.clear() 
                         get_all_patients_for_selection.clear()
@@ -1404,6 +1411,13 @@ if tab_pat:
                     else:
                         pid = insert_patient(payload)
                         st.success(f"Pasien baru berhasil disimpan dengan ID: {pid}")
+
+                        # --- TAMBAHAN: Auto-input diagnosis jika belum ada ---
+                        cek_diag = run_df_branch("SELECT id FROM pwh.hemo_diagnoses WHERE patient_id = :pid", {"pid": pid})
+                        if cek_diag.empty:
+                            insert_diagnosis(pid, "Other", "Tidak diketahui", None, "Auto-input sistem")
+                        # -----------------------------------------------------
+                        
                         fetch_all_wilayah_details.clear()
                         fetch_hmhi_branches.clear() 
                         get_all_patients_for_selection.clear()
