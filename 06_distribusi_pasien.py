@@ -171,8 +171,7 @@ grouped_valid_for_map = grouped[valid_mask].copy()
 
 # Tambahkan properti visual map
 if not grouped_valid_for_map.empty:
-    # --- PERUBAHAN DI SINI ---
-    # Menggunakan nilai tetap (misal 8000 meter) agar titik terlihat kecil dan seragam.
+    # Menggunakan nilai tetap (8000 meter) agar titik terlihat kecil dan seragam.
     grouped_valid_for_map["radius"] = 8000 
     grouped_valid_for_map["label"] = grouped_valid_for_map.apply(lambda r: f"{r['Cabang HMHI']} : {int(r['Jumlah Pasien'])}", axis=1)
 
@@ -187,14 +186,19 @@ st.subheader(f"📋 Rekap Per Cabang HMHI (Total Pasien: {total_pasien_real})")
 display_cols = ["Cabang HMHI", "Jumlah Pasien", "lat", "lon"]
 df_to_show = df_table[display_cols].sort_values("Jumlah Pasien", ascending=False).copy()
 
+# Tambahkan kolom nomor urut (1..N) sebelum baris TOTAL
+df_to_show.insert(0, "No", range(1, len(df_to_show) + 1))
+
 # Menambahkan lat/lon kosong untuk baris TOTAL
 row_total = pd.DataFrame([{
+    "No": None,
     "Cabang HMHI": "TOTAL", 
     "Jumlah Pasien": total_pasien_real,
     "lat": None,
     "lon": None
 }])
 df_to_show = pd.concat([df_to_show, row_total], ignore_index=True)
+df_to_show["No"] = df_to_show["No"].astype("Int64")
 
 # Tampilkan dataframe
 st.dataframe(df_to_show, use_container_width=True, hide_index=True)
@@ -227,11 +231,10 @@ else:
         "ScatterplotLayer",
         data=grouped_valid_for_map,
         get_position='[lon, lat]',
-        get_radius='radius', # Mengambil kolom radius (sekarang fix 8000)
+        get_radius='radius',
         get_fill_color='[200, 30, 0, 160]',
         pickable=True,
         auto_highlight=True,
-        # Opsional: Memastikan titik tidak terlalu kecil/besar saat di-zoom
         radius_min_pixels=3,
         radius_max_pixels=10
     )
@@ -271,7 +274,7 @@ if not df_to_show.empty:
     buffer = io.BytesIO()
     
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        # Download tabel persis seperti tampilan (termasuk lat/lon)
+        # Download tabel persis seperti tampilan (termasuk No, lat, dan lon)
         df_to_show.to_excel(writer, index=False, sheet_name='Rekap Pasien')
             
     buffer.seek(0)
