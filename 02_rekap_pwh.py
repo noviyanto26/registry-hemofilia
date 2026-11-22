@@ -1,31 +1,45 @@
-import os
 import io
+import os
+import matplotlib.pyplot as plt
 import pandas as pd
-import streamlit as st
 from pandas import ExcelWriter
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
-import matplotlib.pyplot as plt
+import streamlit as st
 
 # --- Konfigurasi Halaman Streamlit ---
-st.set_page_config(page_title="Rekapitulasi Berdasarkan Kelompok Usia", page_icon="📊", layout="wide")
+st.set_page_config(
+    page_title="Rekapitulasi Berdasarkan Kelompok Usia",
+    page_icon="📊",
+    layout="wide",
+)
 st.title("📊 Rekapitulasi Berdasarkan Kelompok Usia")
-st.markdown("Dashboard ini menampilkan rekapitulasi dan grafik pasien berdasarkan jenis hemofilia dan kelompok usia.")
+st.markdown(
+    "Dashboard ini menampilkan rekapitulasi dan grafik pasien berdasarkan jenis"
+    " hemofilia dan kelompok usia."
+)
+
 
 # --- KONEKSI DATABASE ---
 def _resolve_db_url() -> str:
     """Mencari DATABASE_URL dari st.secrets atau environment variables."""
     try:
         sec = st.secrets.get("DATABASE_URL", "")
-        if sec: return sec
+        if sec:
+            return sec
     except Exception:
         pass
     env = os.environ.get("DATABASE_URL")
-    if env: return env
-    
-    st.error('DATABASE_URL tidak ditemukan. Mohon atur di `.streamlit/secrets.toml` atau sebagai environment variable.')
+    if env:
+        return env
+
+    st.error(
+        "DATABASE_URL tidak ditemukan. Mohon atur di `.streamlit/secrets.toml`"
+        " atau sebagai environment variable."
+    )
     st.code('DATABASE_URL = "postgresql://USER:PASSWORD@HOST:PORT/DATABASE"')
     return None
+
 
 @st.cache_resource(show_spinner="Menghubungkan ke database...")
 def get_engine(dsn: str) -> Engine:
@@ -41,17 +55,14 @@ def get_engine(dsn: str) -> Engine:
         st.error(f"Gagal terhubung ke database: {e}")
         st.stop()
 
+
 # --- FUNGSI PENGOLAHAN DATA ---
 
+
 def fetch_data_from_view(_engine: Engine) -> pd.DataFrame:
-    """
-    Mengambil data pasien, usia, diagnosis, DAN CABANG.
-    Karena view 'pwh.patients_with_age' tidak memiliki kolom cabang,
-    kita melakukan JOIN ke tabel induk 'pwh.patients'.
-    """
-    st.info("🔄 Mengambil data terbaru dari database...") 
-    
-    # PERBAIKAN SQL: Menambahkan JOIN ke pwh.patients (alias p) untuk mengambil cabang
+    """Mengambil data pasien, usia, diagnosis, DAN CABANG."""
+    st.info("🔄 Mengambil data terbaru dari database...")
+
     query = text("""
         SELECT
             v.id,
@@ -61,7 +72,7 @@ def fetch_data_from_view(_engine: Engine) -> pd.DataFrame:
             d.hemo_type,
             d.severity
         FROM pwh.patients_with_age v
-        JOIN pwh.patients p ON v.id = p.id  -- JOIN TABEL INDUK
+        JOIN pwh.patients p ON v.id = p.id
         JOIN pwh.hemo_diagnoses d ON v.id = d.patient_id;
     """)
     try:
@@ -73,126 +84,180 @@ def fetch_data_from_view(_engine: Engine) -> pd.DataFrame:
         st.info("Pastikan tabel 'pwh.patients' memiliki kolom 'cabang'.")
         return pd.DataFrame()
 
+
 def get_age_group(age):
     """Mengelompokkan usia ke dalam kategori."""
-    if pd.isna(age): return "Unknown"
+    if pd.isna(age):
+        return "Unknown"
     age = int(age)
-    if 0 <= age <= 4: return "0-4"
-    if 5 <= age <= 13: return "5-13"
-    if 14 <= age <= 18: return "14-18"
-    if 19 <= age <= 44: return "19-44"
+    if 0 <= age <= 4:
+        return "0-4"
+    if 5 <= age <= 13:
+        return "5-13"
+    if 14 <= age <= 18:
+        return "14-18"
+    if 19 <= age <= 44:
+        return "19-44"
     return ">45"
 
-def create_summary_table(df: pd.DataFrame) -> pd.DataFrame:
+
+def create_summary_table(
+    df: pd.DataFrame, include_total_row: bool = True
+) -> pd.DataFrame:
     """Membuat tabel rekapitulasi dengan mapping dan urutan perhitungan Total yang benar."""
     df = df.copy()
-    
-    # Standardisasi format teks (Case-insensitive) agar tidak ada kolom siluman
-    df['hemo_type'] = df['hemo_type'].astype(str).str.strip()
-    df['severity'] = df['severity'].astype(str).str.strip().str.title()
-    
+
+    # Standardisasi format teks (Case-insensitive)
+    df["hemo_type"] = df["hemo_type"].astype(str).str.strip()
+    df["severity"] = df["severity"].astype(str).str.strip().str.title()
+
     def map_category(row):
-        htype = row['hemo_type']
-        sev = row['severity']
-        
-        # Standardisasi hemo_type menjadi prefix
-        if htype.upper() == 'A' or htype.lower() == 'hemofilia a':
+        htype = row["hemo_type"]
+        sev = row["severity"]
+
+        if htype.upper() == "A" or htype.lower() == "hemofilia a":
             prefix = "Hemofilia A"
-        elif htype.upper() == 'B' or htype.lower() == 'hemofilia b':
+        elif htype.upper() == "B" or htype.lower() == "hemofilia b":
             prefix = "Hemofilia B"
-        elif htype.lower() == 'vwd':
-            return 'vWD'
+        elif htype.lower() == "vwd":
+            return "vWD"
         else:
-            return 'Hemofilia Tipe Lain'
-            
-        # Gabungkan dengan severity jika ada
-        if pd.notna(sev) and sev.lower() != 'nan' and sev != '':
+            return "Hemofilia Tipe Lain"
+
+        if pd.notna(sev) and sev.lower() != "nan" and sev != "":
             return f"{prefix} - {sev}"
         return prefix
 
-    df['hemo_category'] = df.apply(map_category, axis=1)
-    
+    df["hemo_category"] = df.apply(map_category, axis=1)
+
     # 1. Buat Pivot Table dasar
     summary = pd.pivot_table(
-        df, index='kelompok_usia', columns='hemo_category', aggfunc='size', fill_value=0
+        df,
+        index="kelompok_usia",
+        columns="hemo_category",
+        aggfunc="size",
+        fill_value=0,
     )
-    
-    # 2. Definisikan dan paksakan HANYA kolom yang diinginkan (agar typo/kategori sisa tidak ikut dijumlah)
+
+    # 2. Paksakan HANYA kolom yang diinginkan
     desired_columns = [
-        'Hemofilia A - Ringan', 'Hemofilia A - Sedang', 'Hemofilia A - Berat',
-        'Hemofilia B - Ringan', 'Hemofilia B - Sedang', 'Hemofilia B - Berat',
-        'Hemofilia Tipe Lain', 'vWD'
+        "Hemofilia A - Ringan",
+        "Hemofilia A - Sedang",
+        "Hemofilia A - Berat",
+        "Hemofilia B - Ringan",
+        "Hemofilia B - Sedang",
+        "Hemofilia B - Berat",
+        "Hemofilia Tipe Lain",
+        "vWD",
     ]
     for col in desired_columns:
         if col not in summary.columns:
             summary[col] = 0
-            
+
     summary = summary[desired_columns]
-    
-    # 3. Filter HANYA baris usia yang diinginkan (Membuang 'Unknown' sebelum hitung total)
-    age_order = ['>45', '19-44', '14-18', '5-13', '0-4']
+
+    # 3. Filter HANYA baris usia yang diinginkan
+    age_order = [">45", "19-44", "14-18", "5-13", "0-4"]
     summary = summary.reindex(age_order).fillna(0).astype(int)
 
-    # 4. Hitung Total setelah dimensi baris dan kolom dipastikan bersih
-    summary['Total'] = summary.sum(axis=1)
-    summary.loc['Total'] = summary.sum()
+    # 4. Hitung Total kolom ke kanan
+    summary["Total"] = summary.sum(axis=1)
+
+    # 5. Hitung baris Total bawah hanya jika diminta
+    if include_total_row:
+        summary.loc["Total"] = summary.sum()
 
     return summary
 
+
 def plot_graph(summary_df: pd.DataFrame) -> plt.Figure:
     """Membuat grafik batang dari data rekapitulasi."""
-    plot_df = summary_df.drop(index='Total', errors='ignore')
+    plot_df = summary_df.drop(index="Total", errors="ignore")
 
     fig, ax = plt.subplots(figsize=(14, 8))
-    plot_df.plot(kind='bar', stacked=True, colormap='viridis', ax=ax)
-    
-    ax.set_title('Rekapitulasi Pasien Hemofilia berdasarkan Jenis dan Kelompok Usia', fontsize=16)
-    ax.set_xlabel('Kelompok Usia', fontsize=12)
-    ax.set_ylabel('Jumlah Pasien', fontsize=12)
+    plot_df.plot(kind="bar", stacked=True, colormap="viridis", ax=ax)
+
+    ax.set_title(
+        "Rekapitulasi Pasien Hemofilia berdasarkan Jenis dan Kelompok Usia",
+        fontsize=16,
+    )
+    ax.set_xlabel("Kelompok Usia", fontsize=12)
+    ax.set_ylabel("Jumlah Pasien", fontsize=12)
     plt.xticks(rotation=45)
-    ax.legend(title='Jenis Hemofilia', bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax.legend(title="Jenis Hemofilia", bbox_to_anchor=(1.05, 1), loc="upper left")
     plt.tight_layout()
     return fig
 
-def convert_df_to_excel(df_excel: pd.DataFrame, cabang: str = "Semua Cabang") -> bytes:
+
+def convert_df_to_excel(
+    df_excel: pd.DataFrame, cabang: str = "Semua Cabang"
+) -> bytes:
     """Mengonversi DataFrame yang sudah siap ke format Excel (xlsx) beserta komponen Headernya."""
     output = io.BytesIO()
-    
-    # Menggunakan engine xlsxwriter
+
     with ExcelWriter(output, engine="xlsxwriter") as writer:
-        # Tulis dataframe hasil olahan (index=False karena kolom Cabang dan Kelompok Usia sudah diatur di luar)
-        df_excel.to_excel(writer, sheet_name="Rekapitulasi", index=False, startrow=3)
-        
+        df_excel.to_excel(
+            writer, sheet_name="Rekapitulasi", index=False, startrow=3
+        )
+
         workbook = writer.book
         ws = writer.sheets["Rekapitulasi"]
-        
-        # Atur format style kustom untuk judul laporan
+
         title_format = workbook.add_format({
-            'bold': True,
-            'font_size': 14,
-            'font_name': 'Arial',
-            'font_color': '#1F4E78'
+            "bold": True,
+            "font_size": 14,
+            "font_name": "Arial",
+            "font_color": "#1F4E78",
         })
         subtitle_format = workbook.add_format({
-            'bold': True,
-            'font_size': 11,
-            'font_name': 'Arial',
-            'font_color': '#333333'
+            "bold": True,
+            "font_size": 11,
+            "font_name": "Arial",
+            "font_color": "#333333",
         })
-        
-        # Tulis teks kustom pada baris teratas file Excel
-        ws.write(0, 0, "REKAPITULASI PASIEN HEMOFILIA BERDASARKAN KELOMPOK USIA", title_format)
+        total_row_format = workbook.add_format({
+            "bold": True,
+            "bg_color": "#E8F4F8",
+            "border": 1,
+        })
+
+        # Tulis teks judul pada baris teratas file Excel
+        ws.write(
+            0,
+            0,
+            "REKAPITULASI PASIEN HEMOFILIA BERDASARKAN KELOMPOK USIA",
+            title_format,
+        )
         ws.write(1, 0, f"Cabang: {cabang}", subtitle_format)
-        
-        # Penyesuaian lebar kolom otomatis berdasarkan panjang konten teks
+
+        # Terapkan highlight pada baris Total (di bagian paling akhir tabel)
+        if not df_excel.empty:
+            for row_idx, row_data in df_excel.iterrows():
+                if (
+                    row_data.get("Cabang") == "Total"
+                    or row_data.get("Kelompok Usia") == "Total"
+                ):
+                    excel_row = (
+                        row_idx + 4
+                    )  # offset 3 baris judul + 1 baris header tabel
+                    for col_idx, val in enumerate(row_data):
+                        ws.write(excel_row, col_idx, val, total_row_format)
+
+        # Penyesuaian lebar kolom otomatis
         for col_idx, col_name in enumerate(df_excel.columns):
-            max_len = max(
-                df_excel[col_name].astype(str).map(len).max() if not df_excel.empty else 0,
-                len(str(col_name))
-            ) + 2
+            max_len = (
+                max(
+                    df_excel[col_name].astype(str).map(len).max()
+                    if not df_excel.empty
+                    else 0,
+                    len(str(col_name)),
+                )
+                + 2
+            )
             ws.set_column(col_idx, col_idx, min(max_len, 50))
-            
+
     return output.getvalue()
+
 
 # --- MAIN APP LOGIC ---
 db_url = _resolve_db_url()
@@ -202,79 +267,110 @@ raw_data_df = fetch_data_from_view(engine)
 if raw_data_df.empty:
     st.warning("Tidak ada data yang dapat ditampilkan dari database.")
 else:
-    if 'usia' in raw_data_df.columns:
-        # Salinan data untuk proses filter tampilan web
+    if "usia" in raw_data_df.columns:
         data_df = raw_data_df.copy()
-        selected_cabang = 'Semua Cabang'
-        
+        selected_cabang = "Semua Cabang"
+
         # --- LOGIKA FILTER CABANG ---
-        if 'cabang' in data_df.columns:
-            # Ambil daftar cabang unik dari raw data
-            list_cabang = ['Semua Cabang'] + sorted(data_df['cabang'].dropna().astype(str).unique().tolist())
-            
-            # Buat Selectbox
-            selected_cabang = st.selectbox("🏥 Filter Berdasarkan Cabang:", list_cabang)
-            
-            # Terapkan Filter untuk tampilan di screen
-            if selected_cabang != 'Semua Cabang':
-                data_df = data_df[data_df['cabang'] == selected_cabang].copy()
+        if "cabang" in data_df.columns:
+            list_cabang = ["Semua Cabang"] + sorted(
+                data_df["cabang"].dropna().astype(str).unique().tolist()
+            )
+            selected_cabang = st.selectbox(
+                "🏥 Filter Berdasarkan Cabang:", list_cabang
+            )
+
+            if selected_cabang != "Semua Cabang":
+                data_df = data_df[data_df["cabang"] == selected_cabang].copy()
         else:
             st.warning("Kolom 'cabang' tidak ditemukan dalam data.")
-        # --- END LOGIKA FILTER ---
 
-        # Tampilan Web: Tambah kelompok usia & buat tabel ringkasan (nasional atau per cabang)
-        data_df['kelompok_usia'] = data_df['usia'].apply(get_age_group)
-        rekap_table = create_summary_table(data_df)
-        
-        st.subheader(f"Tabel Rekapitulasi{' - ' + selected_cabang if 'cabang' in data_df.columns and selected_cabang != 'Semua Cabang' else ''}")
-        st.dataframe(rekap_table.style.apply(lambda x: ['background-color: #e8f4f8' if x.name == 'Total' else '' for i in x], axis=1)
-                                    .apply(lambda x: ['background-color: #e8f4f8' if x.name == 'Total' else '' for i in x], axis=0))
+        # Tampilan Web: tetap menampilkan baris Total di layar
+        data_df["kelompok_usia"] = data_df["usia"].apply(get_age_group)
+        rekap_table = create_summary_table(data_df, include_total_row=True)
 
-        # --- LOGIKA EKSPOR EXCEL (GABUNGAN DATA CABANG JIKA 'SEMUA CABANG') ---
-        if selected_cabang == 'Semua Cabang' and 'cabang' in raw_data_df.columns:
+        st.subheader(
+            f"Tabel Rekapitulasi{' - ' + selected_cabang if 'cabang' in data_df.columns and selected_cabang != 'Semua Cabang' else ''}"
+        )
+        st.dataframe(
+            rekap_table.style.apply(
+                lambda x: [
+                    "background-color: #e8f4f8" if x.name == "Total" else ""
+                    for i in x
+                ],
+                axis=1,
+            ).apply(
+                lambda x: [
+                    "background-color: #e8f4f8" if x.name == "Total" else ""
+                    for i in x
+                ],
+                axis=0,
+            )
+        )
+
+        # --- LOGIKA EKSPOR EXCEL ---
+        if selected_cabang == "Semua Cabang" and "cabang" in raw_data_df.columns:
             list_rekap_cabang = []
-            # Ambil semua cabang unik secara alfabetis (Bali s.d Sumatera Utara)
-            unique_branches = sorted(raw_data_df['cabang'].dropna().astype(str).unique().tolist())
-            
+            unique_branches = sorted(
+                raw_data_df["cabang"].dropna().astype(str).unique().tolist()
+            )
+
             for cb in unique_branches:
-                df_cb = raw_data_df[raw_data_df['cabang'] == cb].copy()
+                df_cb = raw_data_df[raw_data_df["cabang"] == cb].copy()
                 if not df_cb.empty:
-                    df_cb['kelompok_usia'] = df_cb['usia'].apply(get_age_group)
-                    rekap_cb = create_summary_table(df_cb)
-                    
-                    # Transformasi index kelompok_usia menjadi kolom biasa
-                    rekap_cb.index.name = 'Kelompok Usia'
+                    df_cb["kelompok_usia"] = df_cb["usia"].apply(get_age_group)
+                    # Tanpa baris Total di setiap akhir cabang
+                    rekap_cb = create_summary_table(
+                        df_cb, include_total_row=False
+                    )
+
+                    rekap_cb.index.name = "Kelompok Usia"
                     rekap_cb = rekap_cb.reset_index()
-                    
-                    # Sisipkan nama cabang di kolom pertama sebelum 'Kelompok Usia'
-                    rekap_cb.insert(0, 'Cabang', cb)
+                    rekap_cb.insert(0, "Cabang", cb)
                     list_rekap_cabang.append(rekap_cb)
-            
-            # Gabungkan semua pecahan dataframe cabang menjadi satu kesatuan ke bawah
-            df_excel_final = pd.concat(list_rekap_cabang, ignore_index=True) if list_rekap_cabang else pd.DataFrame()
+
+            if list_rekap_cabang:
+                df_excel_final = pd.concat(list_rekap_cabang, ignore_index=True)
+
+                # Hitung & tambahkan satu baris Total keseluruhan di bagian paling akhir tabel
+                numeric_cols = df_excel_final.select_dtypes(
+                    include="number"
+                ).columns
+                grand_total = df_excel_final[numeric_cols].sum().to_dict()
+                grand_total["Cabang"] = "Total"
+                grand_total["Kelompok Usia"] = ""
+
+                df_excel_final = pd.concat(
+                    [df_excel_final, pd.DataFrame([grand_total])],
+                    ignore_index=True,
+                )
+            else:
+                df_excel_final = pd.DataFrame()
         else:
-            # Jika memilih cabang tertentu, gunakan rekap cabang tersebut saja
+            # Jika memilih cabang tertentu, gunakan rekap cabang tersebut saja (dengan baris Total)
             df_excel_final = rekap_table.copy()
-            df_excel_final.index.name = 'Kelompok Usia'
+            df_excel_final.index.name = "Kelompok Usia"
             df_excel_final = df_excel_final.reset_index()
-            df_excel_final.insert(0, 'Cabang', selected_cabang)
+            df_excel_final.insert(0, "Cabang", selected_cabang)
 
         # Proses pembuatan file excel bytes
         excel_data = convert_df_to_excel(df_excel_final, selected_cabang)
-        
-        # Format nama file dinamis agar mencantumkan nama cabang
+
         cabang_clean = selected_cabang.replace(" ", "_").lower()
         st.download_button(
             label=f"📥 Download Rekapitulasi (Excel) - {selected_cabang}",
             data=excel_data,
-            file_name=f'rekapitulasi_hemofilia_{cabang_clean}.xlsx',
-            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            file_name=f"rekapitulasi_hemofilia_{cabang_clean}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        
+
         st.markdown("---")
 
         st.subheader("Grafik Visualisasi")
-        fig = plot_graph(rekap_table.drop(columns='Total', errors='ignore'))
+        fig = plot_graph(rekap_table.drop(columns="Total", errors="ignore"))
         st.pyplot(fig)
     else:
-        st.error("Kolom 'usia' (diharapkan dari 'usia_tahun') tidak ditemukan di view 'pwh.patients_with_age'.")
+        st.error(
+            "Kolom 'usia' (diharapkan dari 'usia_tahun') tidak ditemukan di"
+            " view 'pwh.patients_with_age'."
+        )
