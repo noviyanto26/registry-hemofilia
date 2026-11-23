@@ -3,6 +3,7 @@ import io
 import os
 import matplotlib.pyplot as plt
 import pandas as pd
+from pandas import ExcelWriter
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 import streamlit as st
@@ -38,6 +39,7 @@ def _resolve_db_url() -> str:
         "DATABASE_URL tidak ditemukan. Mohon atur di `.streamlit/secrets.toml`"
         " atau sebagai environment variable."
     )
+    st.code('DATABASE_URL = "postgresql://USER:PASSWORD@HOST:PORT/DATABASE"')
     return None
 
 
@@ -110,7 +112,9 @@ def normalize_gender(val) -> str:
     return "Jenis Kelamin Tidak Diketahui"
 
 
-def create_gender_summary_table(df: pd.DataFrame) -> pd.DataFrame:
+def create_gender_summary_table(
+    df: pd.DataFrame, include_total_row: bool = True
+) -> pd.DataFrame:
     """Membuat tabel rekapitulasi berdasarkan kategori dan jenis kelamin."""
     gender_cols = [
         "Laki-laki",
@@ -126,7 +130,11 @@ def create_gender_summary_table(df: pd.DataFrame) -> pd.DataFrame:
 
     # Pastikan data tidak kosong sebelum diproses
     if df.empty:
-        return pd.DataFrame(columns=gender_cols + ["Total"])
+        cols = gender_cols + ["Total"]
+        idx = category_order + (["Total"] if include_total_row else [])
+        res = pd.DataFrame(0, index=idx, columns=cols)
+        res.index.name = "Kategori"
+        return res
 
     df = df.copy()  # Hindari SettingWithCopyWarning
     df["Kategori"] = df["hemo_type"].apply(map_hemo_type_to_category)
@@ -148,13 +156,15 @@ def create_gender_summary_table(df: pd.DataFrame) -> pd.DataFrame:
 
     # Atur urutan baris sesuai standar rekapitulasi
     summary = summary.reindex(category_order).fillna(0).astype(int)
+    summary.index.name = "Kategori"
 
     # Ambil kolom utama dan hitung total kolom
     final_summary = summary[gender_cols].copy()
     final_summary["Total"] = final_summary.sum(axis=1)
 
-    # Tambahkan baris Total di bagian bawah
-    final_summary.loc["Total"] = final_summary.sum()
+    # Tambahkan baris Total di bagian bawah hanya jika diminta
+    if include_total_row:
+        final_summary.loc["Total"] = final_summary.sum()
 
     return final_summary.astype(int)
 
@@ -187,105 +197,328 @@ def plot_gender_graph(summary_df: pd.DataFrame) -> plt.Figure:
     return fig
 
 
+def convert_all_branches_to_excel(
+    rekap_nasional: pd.DataFrame, df_rincian_cabang: pd.DataFrame
+) -> bytes:
+    """Mengonversi rekap Semua Cabang ke Excel dengan 2 sheet:
+    - Rekap Nasional: Rekap gabungan nasional dengan styling header & auto-fit kolom
+    - Rincian Cabang: Rincian per cabang
+    """
+    output = io.BytesIO()
+    df_sheet1 = rekap_nasional.reset_index()
+
+    with ExcelWriter(output, engine="xlsxwriter") as writer:
+        workbook = writer.book
+
+        title_format = workbook.add_format({
+            "bold": True,
+            "font_size": 14,
+            "font_name": "Arial",
+            "font_color": "#1F4E78",
+        })
+        subtitle_format = workbook.add_format({
+            "bold": True,
+            "font_size": 11,
+            "font_name": "Arial",
+            "font_color": "#333333",
+        })
+        header_format = workbook.add_format({
+            "bold": True,
+            "font_name": "Arial",
+            "font_size": 10,
+            "font_color": "#FFFFFF",
+            "bg_color": "#1F4E78",
+            "border": 1,
+            "align": "center",
+            "valign": "vcenter",
+        })
+        cell_format = workbook.add_format({
+            "font_name": "Arial",
+            "font_size": 10,
+            "border": 1,
+        })
+        total_row_format = workbook.add_format({
+            "bold": True,
+            "font_name": "Arial",
+            "font_size": 10,
+            "bg_color": "#E8F4F8",
+            "border": 1,
+        })
+
+        # --- SHEET 1: REKAP GABUNGAN NASIONAL ---
+        df_sheet1.to_excel(writer, sheet_name="Rekap Nasional", index=False)
+        ws1 = writer.sheets["Rekap Nasional"]
+        ws1.set_row(0, 24)
+
+        # Styling header tebal dan warna latar pada baris header
+        for col_idx, col_name in enumerate(df_sheet1.columns):
+            ws1.write(0, col_idx, col_name, header_format)
+
+        # Styling border dan highlight baris Total pada Rekap Nasional
+        for row_idx, row_data in df_sheet1.iterrows():
+            excel_row = row_idx + 1
+            is_total = str(row_data.get("Kategori", "")).strip() == "Total"
+            fmt = total_row_format if is_total else cell_format
+            for col_idx, val in enumerate(row_data):
+                ws1.write(excel_row, col_idx, "" if pd.isna(val) else val, fmt)
+
+        # Penyesuaian lebar kolom otomatis (auto-fit) untuk Rekap Nasional
+        for col_idx, col_name in enumerate(df_sheet1.columns):
+            max_len = (
+                max(
+                    df_sheet1[col_name].fillna("").astype(str).map(len).max()
+                    if not df_sheet1.empty
+                    else 0,
+                    len(str(col_name)),
+                )
+                + 3
+            )
+            ws1.set_column(col_idx, col_idx, min(max_len, 50))
+
+        # --- SHEET 2: RINCIAN PER CABANG ---
+        df_rincian_cabang.to_excel(
+            writer, sheet_name="Rincian Cabang", index=False, startrow=3
+        )
+        ws2 = writer.sheets["Rincian Cabang"]
+
+        # Tulis teks judul pada baris teratas sheet Rincian Cabang
+        ws2.write(
+            0,
+            0,
+            "REKAPITULASI PASIEN HEMOFILIA BERDASARKAN KATEGORI DAN JENIS KELAMIN",
+            title_format,
+        )
+        ws2.write(1, 0, "Cabang: Semua Cabang", subtitle_format)
+
+        # Terapkan highlight pada baris Total (di bagian paling akhir tabel)
+        if not df_rincian_cabang.empty:
+            for row_idx, row_data in df_rincian_cabang.iterrows():
+                if (
+                    row_data.get("Cabang") == "Total"
+                    or row_data.get("Kategori") == "Total"
+                ):
+                    excel_row = (
+                        row_idx + 4
+                    )  # offset 3 baris judul + 1 baris header tabel
+                    for col_idx, val in enumerate(row_data):
+                        ws2.write(
+                            excel_row,
+                            col_idx,
+                            "" if pd.isna(val) else val,
+                            total_row_format,
+                        )
+
+        # Penyesuaian lebar kolom otomatis untuk Rincian Cabang
+        for col_idx, col_name in enumerate(df_rincian_cabang.columns):
+            max_len = (
+                max(
+                    df_rincian_cabang[col_name]
+                    .fillna("")
+                    .astype(str)
+                    .map(len)
+                    .max()
+                    if not df_rincian_cabang.empty
+                    else 0,
+                    len(str(col_name)),
+                )
+                + 2
+            )
+            ws2.set_column(col_idx, col_idx, min(max_len, 50))
+
+    return output.getvalue()
+
+
+def convert_df_to_excel(
+    df_excel: pd.DataFrame, cabang: str = "Semua Cabang"
+) -> bytes:
+    """Mengonversi DataFrame per cabang ke format Excel (xlsx) beserta komponen Headernya."""
+    output = io.BytesIO()
+
+    with ExcelWriter(output, engine="xlsxwriter") as writer:
+        df_excel.to_excel(
+            writer, sheet_name="Rekapitulasi", index=False, startrow=3
+        )
+
+        workbook = writer.book
+        ws = writer.sheets["Rekapitulasi"]
+
+        title_format = workbook.add_format({
+            "bold": True,
+            "font_size": 14,
+            "font_name": "Arial",
+            "font_color": "#1F4E78",
+        })
+        subtitle_format = workbook.add_format({
+            "bold": True,
+            "font_size": 11,
+            "font_name": "Arial",
+            "font_color": "#333333",
+        })
+        total_row_format = workbook.add_format({
+            "bold": True,
+            "bg_color": "#E8F4F8",
+            "border": 1,
+        })
+
+        # Tulis teks judul pada baris teratas file Excel
+        ws.write(
+            0,
+            0,
+            "REKAPITULASI PASIEN HEMOFILIA BERDASARKAN KATEGORI DAN JENIS KELAMIN",
+            title_format,
+        )
+        ws.write(1, 0, f"Cabang: {cabang}", subtitle_format)
+
+        # Terapkan highlight pada baris Total (di bagian paling akhir tabel)
+        if not df_excel.empty:
+            for row_idx, row_data in df_excel.iterrows():
+                if (
+                    row_data.get("Cabang") == "Total"
+                    or row_data.get("Kategori") == "Total"
+                ):
+                    excel_row = (
+                        row_idx + 4
+                    )  # offset 3 baris judul + 1 baris header tabel
+                    for col_idx, val in enumerate(row_data):
+                        ws.write(
+                            excel_row,
+                            col_idx,
+                            "" if pd.isna(val) else val,
+                            total_row_format,
+                        )
+
+        # Penyesuaian lebar kolom otomatis
+        for col_idx, col_name in enumerate(df_excel.columns):
+            max_len = (
+                max(
+                    df_excel[col_name].fillna("").astype(str).map(len).max()
+                    if not df_excel.empty
+                    else 0,
+                    len(str(col_name)),
+                )
+                + 2
+            )
+            ws.set_column(col_idx, col_idx, min(max_len, 50))
+
+    return output.getvalue()
+
+
 # --- MAIN APP LOGIC ---
 db_url = _resolve_db_url()
-if db_url:
-    engine = get_engine(db_url)
-    raw_data_df = fetch_data_for_gender(engine)
+engine = get_engine(db_url)
+raw_data_df = fetch_data_for_gender(engine)
 
-    if raw_data_df.empty:
-        st.warning("Tidak ada data yang dapat ditampilkan dari database.")
+if raw_data_df.empty:
+    st.warning("Tidak ada data yang dapat ditampilkan dari database.")
+else:
+    # Salinan data untuk proses filter tampilan web
+    data_df = raw_data_df.copy()
+    selected_cabang = "Semua Cabang"
+
+    # --- MODIFIKASI: Filter Berdasarkan Cabang ---
+    if "cabang" in data_df.columns:
+        list_cabang = ["Semua Cabang"] + sorted(
+            data_df["cabang"].dropna().astype(str).unique().tolist()
+        )
+        selected_cabang = st.selectbox(
+            "🏢 Filter Berdasarkan Cabang:", list_cabang
+        )
+
+        if selected_cabang != "Semua Cabang":
+            data_df = data_df[data_df["cabang"] == selected_cabang].copy()
     else:
-        # Salinan data untuk proses filter tampilan web
-        data_df = raw_data_df.copy()
-        selected_cabang = "Semua Cabang"
+        st.warning("Kolom 'cabang' tidak ditemukan dalam data.")
 
-        # --- MODIFIKASI: Filter Berdasarkan Cabang ---
-        if "cabang" in data_df.columns:
-            # Ambil daftar cabang unik
-            list_cabang = ["Semua Cabang"] + sorted(
-                data_df["cabang"].dropna().astype(str).unique().tolist()
-            )
+    # Tampilan Web: tetap menampilkan baris Total di layar
+    rekap_table = create_gender_summary_table(data_df, include_total_row=True)
 
-            # Buat Selectbox
-            selected_cabang = st.selectbox(
-                "🏢 Filter Berdasarkan Cabang:", list_cabang
-            )
+    st.subheader(
+        f"Tabel Rekapitulasi{' - ' + selected_cabang if 'cabang' in data_df.columns and selected_cabang != 'Semua Cabang' else ''}"
+    )
+    st.dataframe(
+        rekap_table.style.apply(
+            lambda x: [
+                "background-color: #e8f4f8" if x.name == "Total" else ""
+                for i in x
+            ],
+            axis=1,
+        ).apply(
+            lambda x: [
+                "background-color: #e8f4f8" if x.name == "Total" else ""
+                for i in x
+            ],
+            axis=0,
+        ),
+        use_container_width=True,
+    )
 
-            # Terapkan Filter
-            if selected_cabang != "Semua Cabang":
-                data_df = data_df[data_df["cabang"] == selected_cabang].copy()
-        else:
-            st.warning("Kolom 'cabang' tidak ditemukan dalam data.")
-        # --- END MODIFIKASI ---
-
-        rekap_table = create_gender_summary_table(data_df)
-
-        st.subheader(
-            f"Tabel Rekapitulasi{' - ' + selected_cabang if 'cabang' in data_df.columns and selected_cabang != 'Semua Cabang' else ''}"
-        )
-        st.dataframe(rekap_table, use_container_width=True)
-
-        # --- LOGIKA EKSPOR EXCEL (MENAMBAHKAN CABANG KE KOLOM PERTAMA) ---
-        if selected_cabang == "Semua Cabang" and "cabang" in raw_data_df.columns:
-            list_rekap_cabang = []
-            # Ambil semua cabang unik secara alfabetis
-            unique_branches = sorted(
-                raw_data_df["cabang"].dropna().astype(str).unique().tolist()
-            )
-
-            for cb in unique_branches:
-                df_cb = raw_data_df[raw_data_df["cabang"] == cb].copy()
-                if not df_cb.empty:
-                    rekap_cb = create_gender_summary_table(df_cb)
-
-                    # Transformasi index Kategori menjadi kolom biasa
-                    rekap_cb.index.name = "Kategori"
-                    rekap_cb = rekap_cb.reset_index()
-
-                    # Sisipkan nama cabang di kolom pertama
-                    rekap_cb.insert(0, "Cabang", cb)
-                    list_rekap_cabang.append(rekap_cb)
-
-            # Gabungkan semua pecahan dataframe cabang menjadi satu
-            df_excel_final = (
-                pd.concat(list_rekap_cabang, ignore_index=True)
-                if list_rekap_cabang
-                else pd.DataFrame()
-            )
-        else:
-            # Jika memilih cabang tertentu
-            df_excel_final = rekap_table.copy()
-            df_excel_final.index.name = "Kategori"
-            df_excel_final = df_excel_final.reset_index()
-            df_excel_final.insert(0, "Cabang", selected_cabang)
-
-        # Proses output ke bytes Excel
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            # index=False karena Kategori sudah dijadikan kolom
-            df_excel_final.to_excel(
-                writer, index=False, sheet_name="Rekapitulasi Gender"
-            )
-        excel_data = output.getvalue()
-
-        # Format nama file dinamis dan sesuaikan nama tombol
-        cabang_clean = selected_cabang.replace(" ", "_").lower()
-        st.download_button(
-            label=f"📥 Download Rekapitulasi (Excel) - {selected_cabang}",
-            data=excel_data,
-            file_name=f"rekapitulasi_jenis_kelamin_{cabang_clean}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    # --- LOGIKA EKSPOR EXCEL ---
+    if selected_cabang == "Semua Cabang" and "cabang" in raw_data_df.columns:
+        list_rekap_cabang = []
+        unique_branches = sorted(
+            raw_data_df["cabang"].dropna().astype(str).unique().tolist()
         )
 
-        st.markdown("---")
+        for cb in unique_branches:
+            df_cb = raw_data_df[raw_data_df["cabang"] == cb].copy()
+            if not df_cb.empty:
+                # Tanpa baris Total di setiap akhir cabang
+                rekap_cb = create_gender_summary_table(
+                    df_cb, include_total_row=False
+                )
 
-        st.subheader("Grafik Visualisasi")
-        if not rekap_table.empty:
-            fig = plot_gender_graph(rekap_table)
-            st.pyplot(fig)
-        else:
-            st.info(
-                "Tidak ada data untuk ditampilkan pada grafik setelah filter"
-                " diterapkan."
+                rekap_cb.index.name = "Kategori"
+                rekap_cb = rekap_cb.reset_index()
+                rekap_cb.insert(0, "Cabang", cb)
+                list_rekap_cabang.append(rekap_cb)
+
+        if list_rekap_cabang:
+            df_excel_rincian = pd.concat(list_rekap_cabang, ignore_index=True)
+
+            # Hitung & tambahkan satu baris Total keseluruhan di bagian paling akhir tabel
+            numeric_cols = df_excel_rincian.select_dtypes(
+                include="number"
+            ).columns
+            grand_total = df_excel_rincian[numeric_cols].sum().to_dict()
+            grand_total["Cabang"] = "Total"
+            grand_total["Kategori"] = ""
+
+            df_excel_rincian = pd.concat(
+                [df_excel_rincian, pd.DataFrame([grand_total])],
+                ignore_index=True,
             )
+        else:
+            df_excel_rincian = pd.DataFrame()
+
+        # Gabungkan sheet Rekap Nasional dan Rincian Cabang
+        excel_data = convert_all_branches_to_excel(
+            rekap_table, df_excel_rincian
+        )
+    else:
+        # Jika memilih cabang tertentu, gunakan rekap cabang tersebut saja (dengan baris Total)
+        df_excel_final = rekap_table.copy()
+        df_excel_final.index.name = "Kategori"
+        df_excel_final = df_excel_final.reset_index()
+        df_excel_final.insert(0, "Cabang", selected_cabang)
+        excel_data = convert_df_to_excel(df_excel_final, selected_cabang)
+
+    # Format nama file dinamis dan sesuaikan nama tombol
+    cabang_clean = selected_cabang.replace(" ", "_").lower()
+    st.download_button(
+        label=f"📥 Download Rekapitulasi (Excel) - {selected_cabang}",
+        data=excel_data,
+        file_name=f"rekapitulasi_jenis_kelamin_{cabang_clean}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+    st.markdown("---")
+
+    st.subheader("Grafik Visualisasi")
+    if not rekap_table.empty:
+        fig = plot_gender_graph(rekap_table)
+        st.pyplot(fig)
+    else:
+        st.info(
+            "Tidak ada data untuk ditampilkan pada grafik setelah filter"
+            " diterapkan."
+        )
