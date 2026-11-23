@@ -10,10 +10,10 @@ import streamlit as st
 # --- Konfigurasi Halaman Streamlit ---
 st.set_page_config(
     page_title="Rekapitulasi Berdasarkan Kelompok Usia",
-    page_icon="📊",
+    page_icon="投",
     layout="wide",
 )
-st.title("📊 Rekapitulasi Berdasarkan Kelompok Usia")
+st.title("投 Rekapitulasi Berdasarkan Kelompok Usia")
 st.markdown(
     "Dashboard ini menampilkan rekapitulasi dan grafik pasien berdasarkan jenis"
     " hemofilia dan kelompok usia."
@@ -61,19 +61,19 @@ def get_engine(dsn: str) -> Engine:
 
 def fetch_data_from_view(_engine: Engine) -> pd.DataFrame:
     """Mengambil data pasien, usia, diagnosis, DAN CABANG."""
-    st.info("🔄 Mengambil data terbaru dari database...")
+    st.info("売 Mengambil data terbaru dari database...")
 
     query = text("""
         SELECT
-            v.id,
-            v.full_name,
-            v.usia_tahun as usia,
-            p.cabang, 
+            p.id,
+            p.full_name,
+            v.usia_tahun AS usia,
+            COALESCE(p.cabang, 'Tanpa Cabang') AS cabang,
             d.hemo_type,
             d.severity
-        FROM pwh.patients_with_age v
-        JOIN pwh.patients p ON v.id = p.id
-        JOIN pwh.hemo_diagnoses d ON v.id = d.patient_id;
+        FROM pwh.patients p
+        LEFT JOIN pwh.patients_with_age v ON p.id = v.id
+        LEFT JOIN pwh.hemo_diagnoses d ON p.id = d.patient_id;
     """)
     try:
         with _engine.connect() as connection:
@@ -293,7 +293,7 @@ else:
                 data_df["cabang"].dropna().astype(str).unique().tolist()
             )
             selected_cabang = st.selectbox(
-                "🏢 Filter Berdasarkan Cabang:", list_cabang
+                "召 Filter Berdasarkan Cabang:", list_cabang
             )
 
             if selected_cabang != "Semua Cabang":
@@ -374,7 +374,7 @@ else:
 
         cabang_clean = selected_cabang.replace(" ", "_").lower()
         st.download_button(
-            label=f"📥 Download Rekapitulasi (Excel) - {selected_cabang}",
+            label=f"踏 Download Rekapitulasi (Excel) - {selected_cabang}",
             data=excel_data,
             file_name=f"rekapitulasi_hemofilia_{cabang_clean}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
