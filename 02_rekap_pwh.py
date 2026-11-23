@@ -10,10 +10,10 @@ import streamlit as st
 # --- Konfigurasi Halaman Streamlit ---
 st.set_page_config(
     page_title="Rekapitulasi Berdasarkan Kelompok Usia",
-    page_icon="投",
+    page_icon="📊",
     layout="wide",
 )
-st.title("投 Rekapitulasi Berdasarkan Kelompok Usia")
+st.title("📊 Rekapitulasi Berdasarkan Kelompok Usia")
 st.markdown(
     "Dashboard ini menampilkan rekapitulasi dan grafik pasien berdasarkan jenis"
     " hemofilia dan kelompok usia."
@@ -61,7 +61,7 @@ def get_engine(dsn: str) -> Engine:
 
 def fetch_data_from_view(_engine: Engine) -> pd.DataFrame:
     """Mengambil data pasien, usia, diagnosis, DAN CABANG."""
-    st.info("売 Mengambil data terbaru dari database...")
+    st.info("🔄 Mengambil data terbaru dari database...")
 
     query = text("""
         SELECT
@@ -115,13 +115,13 @@ def create_summary_table(
     """Membuat tabel rekapitulasi dengan mapping dan urutan perhitungan Total yang benar."""
     df = df.copy()
 
-    # Standardisasi format teks (Case-insensitive)
-    df["hemo_type"] = df["hemo_type"].astype(str).str.strip()
-    df["severity"] = df["severity"].astype(str).str.strip().str.title()
+    # Standardisasi format teks (aman dari nilai NULL / NaN)
+    df["hemo_type"] = df["hemo_type"].fillna("").astype(str).str.strip()
+    df["severity"] = df["severity"].fillna("").astype(str).str.strip().str.title()
 
     def map_category(row):
-        htype = row["hemo_type"]
-        sev = row["severity"]
+        htype = "" if pd.isna(row["hemo_type"]) else str(row["hemo_type"]).strip()
+        sev = "" if pd.isna(row["severity"]) else str(row["severity"]).strip()
 
         if htype.upper() == "A" or htype.lower() == "hemofilia a":
             prefix = "Hemofilia A"
@@ -132,7 +132,7 @@ def create_summary_table(
         else:
             return "Hemofilia Tipe Lain"
 
-        if pd.notna(sev) and sev.lower() != "nan" and sev != "":
+        if sev and sev.lower() not in ("nan", "none", "<na>"):
             return f"{prefix} - {sev}"
         return prefix
 
@@ -293,7 +293,7 @@ else:
                 data_df["cabang"].dropna().astype(str).unique().tolist()
             )
             selected_cabang = st.selectbox(
-                "召 Filter Berdasarkan Cabang:", list_cabang
+                "🏢 Filter Berdasarkan Cabang:", list_cabang
             )
 
             if selected_cabang != "Semua Cabang":
@@ -374,7 +374,7 @@ else:
 
         cabang_clean = selected_cabang.replace(" ", "_").lower()
         st.download_button(
-            label=f"踏 Download Rekapitulasi (Excel) - {selected_cabang}",
+            label=f"📥 Download Rekapitulasi (Excel) - {selected_cabang}",
             data=excel_data,
             file_name=f"rekapitulasi_hemofilia_{cabang_clean}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
