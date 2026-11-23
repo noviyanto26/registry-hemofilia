@@ -1,30 +1,45 @@
 # 03_rekap_gender.py
-import os
 import io
+import os
+import matplotlib.pyplot as plt
 import pandas as pd
-import streamlit as st
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
-import matplotlib.pyplot as plt
+import streamlit as st
 
 # --- Konfigurasi Halaman Streamlit ---
-st.set_page_config(page_title="Rekapitulasi per Jenis Kelamin", page_icon="🚻", layout="wide")
+st.set_page_config(
+    page_title="Rekapitulasi per Jenis Kelamin",
+    page_icon="🚻",
+    layout="wide",
+)
 st.title("🚻 Rekapitulasi Pasien berdasarkan Kategori dan Jenis Kelamin")
-st.markdown("Dashboard ini menampilkan rekapitulasi dan grafik pasien berdasarkan jenis hemofilia dan jenis kelamin (Laki-laki/Perempuan).")
+st.markdown(
+    "Dashboard ini menampilkan rekapitulasi dan grafik pasien berdasarkan jenis"
+    " hemofilia dan jenis kelamin (Laki-laki, Perempuan, dan Jenis Kelamin"
+    " Tidak Diketahui)."
+)
+
 
 # --- KONEKSI DATABASE ---
 def _resolve_db_url() -> str:
     """Mencari DATABASE_URL dari st.secrets atau environment variables."""
     try:
         sec = st.secrets.get("DATABASE_URL", "")
-        if sec: return sec
+        if sec:
+            return sec
     except Exception:
         pass
     env = os.environ.get("DATABASE_URL")
-    if env: return env
-    
-    st.error('DATABASE_URL tidak ditemukan. Mohon atur di `.streamlit/secrets.toml`.')
+    if env:
+        return env
+
+    st.error(
+        "DATABASE_URL tidak ditemukan. Mohon atur di `.streamlit/secrets.toml`"
+        " atau sebagai environment variable."
+    )
     return None
+
 
 @st.cache_resource(show_spinner="Menghubungkan ke database...")
 def get_engine(dsn: str) -> Engine:
@@ -40,22 +55,23 @@ def get_engine(dsn: str) -> Engine:
         st.error(f"Gagal terhubung ke database: {e}")
         st.stop()
 
+
 # --- FUNGSI PENGOLAHAN DATA ---
 
+
 def fetch_data_for_gender(_engine: Engine) -> pd.DataFrame:
-    """
-    Mengambil data jenis kelamin pasien, cabang, dan diagnosis hemofilia.
-    """
+    """Mengambil data jenis kelamin pasien, cabang, dan diagnosis hemofilia (1 baris per pasien)."""
     st.info("🔄 Mengambil data terbaru dari database...")
-    # MODIFIKASI: Menambahkan p.cabang
+
     query = text("""
-        SELECT
+        SELECT DISTINCT ON (p.id)
+            p.id,
             p.gender AS jenis_kelamin,
-            p.cabang,
+            COALESCE(NULLIF(TRIM(p.cabang), ''), 'Tanpa Cabang') AS cabang,
             d.hemo_type
         FROM pwh.patients p
-        JOIN pwh.hemo_diagnoses d ON p.id = d.patient_id
-        WHERE p.gender IS NOT NULL AND d.hemo_type IS NOT NULL;
+        LEFT JOIN pwh.hemo_diagnoses d ON p.id = d.patient_id
+        ORDER BY p.id, d.id DESC NULLS LAST;
     """)
     try:
         with _engine.connect() as connection:
@@ -63,79 +79,113 @@ def fetch_data_for_gender(_engine: Engine) -> pd.DataFrame:
         return df
     except Exception as e:
         st.error(f"Gagal mengambil data: {e}")
-        st.info("Pastikan tabel 'pwh.patients' memiliki kolom 'gender', 'cabang' dan 'pwh.hemo_diagnoses' memiliki kolom 'hemo_type'.")
+        st.info(
+            "Pastikan tabel 'pwh.patients' memiliki kolom 'gender', 'cabang'"
+            " dan 'pwh.hemo_diagnoses' memiliki kolom 'hemo_type'."
+        )
         return pd.DataFrame()
 
-def map_hemo_type_to_category(hemo_type):
-    """Mengelompokkan hemo_type ke kategori yang sesuai."""
-    if hemo_type == 'A':
-        return 'Hemofilia A'
-    if hemo_type == 'B':
-        return 'Hemofilia B'
-    if hemo_type == 'Other':
-        return 'Hemofilia tipe lain'
-    if hemo_type == 'vWD':
-        return 'VWD'
-    return 'Lainnya'
+
+def map_hemo_type_to_category(hemo_type) -> str:
+    """Mengelompokkan hemo_type ke kategori yang sesuai (selaras dengan 02_rekap_pwh)."""
+    htype = "" if pd.isna(hemo_type) else str(hemo_type).strip()
+
+    if htype.upper() == "A" or htype.lower() == "hemofilia a":
+        return "Hemofilia A"
+    if htype.upper() == "B" or htype.lower() == "hemofilia b":
+        return "Hemofilia B"
+    if htype.lower() == "vwd":
+        return "VWD"
+    return "Hemofilia tipe lain"
+
+
+def normalize_gender(val) -> str:
+    """Menormalisasi nilai gender; jika kosong/tidak valid dipetakan ke 'Jenis Kelamin Tidak Diketahui'."""
+    g = "" if pd.isna(val) else str(val).strip().lower()
+
+    if g in ("laki-laki", "laki laki", "l", "male", "m"):
+        return "Laki-laki"
+    if g in ("perempuan", "p", "female", "f"):
+        return "Perempuan"
+    return "Jenis Kelamin Tidak Diketahui"
+
 
 def create_gender_summary_table(df: pd.DataFrame) -> pd.DataFrame:
     """Membuat tabel rekapitulasi berdasarkan kategori dan jenis kelamin."""
+    gender_cols = [
+        "Laki-laki",
+        "Perempuan",
+        "Jenis Kelamin Tidak Diketahui",
+    ]
+    category_order = [
+        "Hemofilia A",
+        "Hemofilia B",
+        "Hemofilia tipe lain",
+        "VWD",
+    ]
+
     # Pastikan data tidak kosong sebelum diproses
     if df.empty:
-        return pd.DataFrame(columns=['Laki-laki', 'Perempuan', 'Total'])
+        return pd.DataFrame(columns=gender_cols + ["Total"])
 
-    df = df.copy() # Hindari SettingWithCopyWarning
-    df['Kategori'] = df['hemo_type'].apply(map_hemo_type_to_category)
-    
+    df = df.copy()  # Hindari SettingWithCopyWarning
+    df["Kategori"] = df["hemo_type"].apply(map_hemo_type_to_category)
+    df["jenis_kelamin_norm"] = df["jenis_kelamin"].apply(normalize_gender)
+
     # Buat pivot table
     summary = pd.pivot_table(
-        df, 
-        index='Kategori', 
-        columns='jenis_kelamin', 
-        aggfunc='size', 
-        fill_value=0
+        df,
+        index="Kategori",
+        columns="jenis_kelamin_norm",
+        aggfunc="size",
+        fill_value=0,
     )
-    
-    # Pastikan kolom Laki-laki dan Perempuan ada
-    if 'Laki-laki' not in summary.columns:
-        summary['Laki-laki'] = 0
-    if 'Perempuan' not in summary.columns:
-        summary['Perempuan'] = 0
-        
-    # Atur urutan baris sesuai contoh excel
-    category_order = ['Hemofilia A', 'Hemofilia B', 'Hemofilia tipe lain', 'VWD']
+
+    # Pastikan semua kolom jenis kelamin tersedia
+    for col in gender_cols:
+        if col not in summary.columns:
+            summary[col] = 0
+
+    # Atur urutan baris sesuai standar rekapitulasi
     summary = summary.reindex(category_order).fillna(0).astype(int)
-    
+
     # Ambil kolom utama dan hitung total kolom
-    final_summary = summary[['Laki-laki', 'Perempuan']]
-    final_summary['Total'] = final_summary.sum(axis=1)
-    
+    final_summary = summary[gender_cols].copy()
+    final_summary["Total"] = final_summary.sum(axis=1)
+
     # Tambahkan baris Total di bagian bawah
-    final_summary.loc['Total'] = final_summary.sum()
-    
+    final_summary.loc["Total"] = final_summary.sum()
+
     return final_summary.astype(int)
 
 
 def plot_gender_graph(summary_df: pd.DataFrame) -> plt.Figure:
     """Membuat grafik batang dari data rekapitulasi jenis kelamin."""
     # Hapus baris dan kolom 'Total' sebelum plotting
-    plot_df = summary_df.drop(index='Total', columns='Total', errors='ignore')
+    plot_df = summary_df.drop(index="Total", columns="Total", errors="ignore")
 
     fig, ax = plt.subplots(figsize=(12, 7))
-    plot_df.plot(kind='bar', ax=ax, color=['#1f77b4', '#ff7f0e']) # Memberi warna berbeda
-    
-    ax.set_title('Jumlah Pasien berdasarkan Kategori dan Jenis Kelamin', fontsize=16, pad=20)
-    ax.set_xlabel('Kategori Hemofilia', fontsize=12)
-    ax.set_ylabel('Jumlah Pasien', fontsize=12)
-    plt.xticks(rotation=0, ha='center')
-    ax.legend(title='Jenis Kelamin')
-    
+    plot_df.plot(
+        kind="bar", ax=ax, color=["#1f77b4", "#ff7f0e", "#7f7f7f"]
+    )
+
+    ax.set_title(
+        "Jumlah Pasien berdasarkan Kategori dan Jenis Kelamin",
+        fontsize=16,
+        pad=20,
+    )
+    ax.set_xlabel("Kategori Hemofilia", fontsize=12)
+    ax.set_ylabel("Jumlah Pasien", fontsize=12)
+    plt.xticks(rotation=0, ha="center")
+    ax.legend(title="Jenis Kelamin")
+
     # Menambahkan label angka di atas setiap bar
     for container in ax.containers:
-        ax.bar_label(container, label_type='edge', fontsize=10, padding=3)
+        ax.bar_label(container, label_type="edge", fontsize=10, padding=3)
 
     plt.tight_layout()
     return fig
+
 
 # --- MAIN APP LOGIC ---
 db_url = _resolve_db_url()
@@ -148,77 +198,94 @@ if db_url:
     else:
         # Salinan data untuk proses filter tampilan web
         data_df = raw_data_df.copy()
-        selected_cabang = 'Semua Cabang'
+        selected_cabang = "Semua Cabang"
 
         # --- MODIFIKASI: Filter Berdasarkan Cabang ---
-        if 'cabang' in data_df.columns:
+        if "cabang" in data_df.columns:
             # Ambil daftar cabang unik
-            list_cabang = ['Semua Cabang'] + sorted(data_df['cabang'].dropna().astype(str).unique().tolist())
-            
+            list_cabang = ["Semua Cabang"] + sorted(
+                data_df["cabang"].dropna().astype(str).unique().tolist()
+            )
+
             # Buat Selectbox
-            selected_cabang = st.selectbox("🏥 Filter Berdasarkan Cabang:", list_cabang)
-            
+            selected_cabang = st.selectbox(
+                "🏢 Filter Berdasarkan Cabang:", list_cabang
+            )
+
             # Terapkan Filter
-            if selected_cabang != 'Semua Cabang':
-                data_df = data_df[data_df['cabang'] == selected_cabang].copy()
+            if selected_cabang != "Semua Cabang":
+                data_df = data_df[data_df["cabang"] == selected_cabang].copy()
         else:
             st.warning("Kolom 'cabang' tidak ditemukan dalam data.")
         # --- END MODIFIKASI ---
 
         rekap_table = create_gender_summary_table(data_df)
 
-        st.subheader(f"Tabel Rekapitulasi{' - ' + selected_cabang if 'cabang' in data_df.columns and selected_cabang != 'Semua Cabang' else ''}")
+        st.subheader(
+            f"Tabel Rekapitulasi{' - ' + selected_cabang if 'cabang' in data_df.columns and selected_cabang != 'Semua Cabang' else ''}"
+        )
         st.dataframe(rekap_table, use_container_width=True)
 
         # --- LOGIKA EKSPOR EXCEL (MENAMBAHKAN CABANG KE KOLOM PERTAMA) ---
-        if selected_cabang == 'Semua Cabang' and 'cabang' in raw_data_df.columns:
+        if selected_cabang == "Semua Cabang" and "cabang" in raw_data_df.columns:
             list_rekap_cabang = []
             # Ambil semua cabang unik secara alfabetis
-            unique_branches = sorted(raw_data_df['cabang'].dropna().astype(str).unique().tolist())
-            
+            unique_branches = sorted(
+                raw_data_df["cabang"].dropna().astype(str).unique().tolist()
+            )
+
             for cb in unique_branches:
-                df_cb = raw_data_df[raw_data_df['cabang'] == cb].copy()
+                df_cb = raw_data_df[raw_data_df["cabang"] == cb].copy()
                 if not df_cb.empty:
                     rekap_cb = create_gender_summary_table(df_cb)
-                    
+
                     # Transformasi index Kategori menjadi kolom biasa
-                    rekap_cb.index.name = 'Kategori'
+                    rekap_cb.index.name = "Kategori"
                     rekap_cb = rekap_cb.reset_index()
-                    
+
                     # Sisipkan nama cabang di kolom pertama
-                    rekap_cb.insert(0, 'Cabang', cb)
+                    rekap_cb.insert(0, "Cabang", cb)
                     list_rekap_cabang.append(rekap_cb)
-            
+
             # Gabungkan semua pecahan dataframe cabang menjadi satu
-            df_excel_final = pd.concat(list_rekap_cabang, ignore_index=True) if list_rekap_cabang else pd.DataFrame()
+            df_excel_final = (
+                pd.concat(list_rekap_cabang, ignore_index=True)
+                if list_rekap_cabang
+                else pd.DataFrame()
+            )
         else:
             # Jika memilih cabang tertentu
             df_excel_final = rekap_table.copy()
-            df_excel_final.index.name = 'Kategori'
+            df_excel_final.index.name = "Kategori"
             df_excel_final = df_excel_final.reset_index()
-            df_excel_final.insert(0, 'Cabang', selected_cabang)
+            df_excel_final.insert(0, "Cabang", selected_cabang)
 
         # Proses output ke bytes Excel
         output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
             # index=False karena Kategori sudah dijadikan kolom
-            df_excel_final.to_excel(writer, index=False, sheet_name='Rekapitulasi Gender')
+            df_excel_final.to_excel(
+                writer, index=False, sheet_name="Rekapitulasi Gender"
+            )
         excel_data = output.getvalue()
 
         # Format nama file dinamis dan sesuaikan nama tombol
         cabang_clean = selected_cabang.replace(" ", "_").lower()
         st.download_button(
-           label=f"📥 Download Rekapitulasi (Excel) - {selected_cabang}",
-           data=excel_data,
-           file_name=f'rekapitulasi_jenis_kelamin_{cabang_clean}.xlsx',
-           mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            label=f"📥 Download Rekapitulasi (Excel) - {selected_cabang}",
+            data=excel_data,
+            file_name=f"rekapitulasi_jenis_kelamin_{cabang_clean}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        
+
         st.markdown("---")
 
         st.subheader("Grafik Visualisasi")
         if not rekap_table.empty:
-             fig = plot_gender_graph(rekap_table)
-             st.pyplot(fig)
+            fig = plot_gender_graph(rekap_table)
+            st.pyplot(fig)
         else:
-             st.info("Tidak ada data untuk ditampilkan pada grafik setelah filter diterapkan.")
+            st.info(
+                "Tidak ada data untuk ditampilkan pada grafik setelah filter"
+                " diterapkan."
+            )
