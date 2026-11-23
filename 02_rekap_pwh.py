@@ -60,20 +60,21 @@ def get_engine(dsn: str) -> Engine:
 
 
 def fetch_data_from_view(_engine: Engine) -> pd.DataFrame:
-    """Mengambil data pasien, usia, diagnosis, DAN CABANG."""
+    """Mengambil data pasien, usia, diagnosis, DAN CABANG (1 baris per pasien)."""
     st.info("🔄 Mengambil data terbaru dari database...")
 
     query = text("""
-        SELECT
+        SELECT DISTINCT ON (p.id)
             p.id,
             p.full_name,
             v.usia_tahun AS usia,
-            COALESCE(p.cabang, 'Tanpa Cabang') AS cabang,
+            COALESCE(NULLIF(TRIM(p.cabang), ''), 'Tanpa Cabang') AS cabang,
             d.hemo_type,
             d.severity
         FROM pwh.patients p
         LEFT JOIN pwh.patients_with_age v ON p.id = v.id
-        LEFT JOIN pwh.hemo_diagnoses d ON p.id = d.patient_id;
+        LEFT JOIN pwh.hemo_diagnoses d ON p.id = d.patient_id
+        ORDER BY p.id, d.id DESC NULLS LAST;
     """)
     try:
         with _engine.connect() as connection:
@@ -132,9 +133,9 @@ def create_summary_table(
         else:
             return "Hemofilia Tipe Lain"
 
-        if sev and sev.lower() not in ("nan", "none", "<na>"):
+        if sev in ("Ringan", "Sedang", "Berat"):
             return f"{prefix} - {sev}"
-        return prefix
+        return f"{prefix} - Tidak Diketahui"
 
     df["hemo_category"] = df.apply(map_category, axis=1)
 
@@ -147,14 +148,16 @@ def create_summary_table(
         fill_value=0,
     )
 
-    # 2. Paksakan HANYA kolom yang diinginkan
+    # 2. Paksakan seluruh kolom kategori agar tidak ada pasien yang terbuang
     desired_columns = [
         "Hemofilia A - Ringan",
         "Hemofilia A - Sedang",
         "Hemofilia A - Berat",
+        "Hemofilia A - Tidak Diketahui",
         "Hemofilia B - Ringan",
         "Hemofilia B - Sedang",
         "Hemofilia B - Berat",
+        "Hemofilia B - Tidak Diketahui",
         "Hemofilia Tipe Lain",
         "vWD",
     ]
@@ -209,23 +212,14 @@ def convert_all_branches_to_excel(
     rekap_nasional: pd.DataFrame, df_rincian_cabang: pd.DataFrame
 ) -> bytes:
     """Mengonversi rekap Semua Cabang ke Excel dengan 2 sheet:
-    - Rekap Nasional: Rekap gabungan nasional
+    - Rekap Nasional: Rekap gabungan nasional dengan styling header & auto-fit kolom
     - Rincian Cabang: Rincian per cabang
     """
     output = io.BytesIO()
     df_sheet1 = rekap_nasional.reset_index()
 
     with ExcelWriter(output, engine="xlsxwriter") as writer:
-        # --- SHEET 1: REKAP GABUNGAN NASIONAL ---
-        df_sheet1.to_excel(writer, sheet_name="Rekap Nasional", index=False)
-
-        # --- SHEET 2: RINCIAN PER CABANG ---
-        df_rincian_cabang.to_excel(
-            writer, sheet_name="Rincian Cabang", index=False, startrow=3
-        )
-
         workbook = writer.book
-        ws2 = writer.sheets["Rincian Cabang"]
 
         title_format = workbook.add_format({
             "bold": True,
@@ -239,11 +233,64 @@ def convert_all_branches_to_excel(
             "font_name": "Arial",
             "font_color": "#333333",
         })
+        header_format = workbook.add_format({
+            "bold": True,
+            "font_name": "Arial",
+            "font_size": 10,
+            "font_color": "#FFFFFF",
+            "bg_color": "#1F4E78",
+            "border": 1,
+            "align": "center",
+            "valign": "vcenter",
+        })
+        cell_format = workbook.add_format({
+            "font_name": "Arial",
+            "font_size": 10,
+            "border": 1,
+        })
         total_row_format = workbook.add_format({
             "bold": True,
+            "font_name": "Arial",
+            "font_size": 10,
             "bg_color": "#E8F4F8",
             "border": 1,
         })
+
+        # --- SHEET 1: REKAP GABUNGAN NASIONAL ---
+        df_sheet1.to_excel(writer, sheet_name="Rekap Nasional", index=False)
+        ws1 = writer.sheets["Rekap Nasional"]
+        ws1.set_row(0, 24)
+
+        # Styling header tebal dan warna latar pada baris header
+        for col_idx, col_name in enumerate(df_sheet1.columns):
+            ws1.write(0, col_idx, col_name, header_format)
+
+        # Styling border dan highlight baris Total pada Rekap Nasional
+        for row_idx, row_data in df_sheet1.iterrows():
+            excel_row = row_idx + 1
+            is_total = str(row_data.get("kelompok_usia", "")).strip() == "Total"
+            fmt = total_row_format if is_total else cell_format
+            for col_idx, val in enumerate(row_data):
+                ws1.write(excel_row, col_idx, "" if pd.isna(val) else val, fmt)
+
+        # Penyesuaian lebar kolom otomatis (auto-fit) untuk Rekap Nasional
+        for col_idx, col_name in enumerate(df_sheet1.columns):
+            max_len = (
+                max(
+                    df_sheet1[col_name].fillna("").astype(str).map(len).max()
+                    if not df_sheet1.empty
+                    else 0,
+                    len(str(col_name)),
+                )
+                + 3
+            )
+            ws1.set_column(col_idx, col_idx, min(max_len, 50))
+
+        # --- SHEET 2: RINCIAN PER CABANG ---
+        df_rincian_cabang.to_excel(
+            writer, sheet_name="Rincian Cabang", index=False, startrow=3
+        )
+        ws2 = writer.sheets["Rincian Cabang"]
 
         # Tulis teks judul pada baris teratas sheet Rincian Cabang
         ws2.write(
