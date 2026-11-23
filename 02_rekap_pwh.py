@@ -88,8 +88,12 @@ def fetch_data_from_view(_engine: Engine) -> pd.DataFrame:
 def get_age_group(age):
     """Mengelompokkan usia ke dalam kategori."""
     if pd.isna(age):
-        return "Unknown"
-    age = int(age)
+        return "Tanpa Data Usia"
+    try:
+        age = int(age)
+    except (ValueError, TypeError):
+        return "Tanpa Data Usia"
+
     if 0 <= age <= 4:
         return "0-4"
     if 5 <= age <= 13:
@@ -98,7 +102,11 @@ def get_age_group(age):
         return "14-18"
     if 19 <= age <= 44:
         return "19-44"
-    return ">45"
+    if 45 <= age <= 64:
+        return "45-64"
+    if age >= 65:
+        return ">65"
+    return "Tanpa Data Usia"
 
 
 def create_summary_table(
@@ -157,7 +165,15 @@ def create_summary_table(
     summary = summary[desired_columns]
 
     # 3. Filter HANYA baris usia yang diinginkan
-    age_order = [">45", "19-44", "14-18", "5-13", "0-4"]
+    age_order = [
+        ">65",
+        "45-64",
+        "19-44",
+        "14-18",
+        "5-13",
+        "0-4",
+        "Tanpa Data Usia",
+    ]
     summary = summary.reindex(age_order).fillna(0).astype(int)
 
     # 4. Hitung Total kolom ke kanan
@@ -277,7 +293,7 @@ else:
                 data_df["cabang"].dropna().astype(str).unique().tolist()
             )
             selected_cabang = st.selectbox(
-                "🏥 Filter Berdasarkan Cabang:", list_cabang
+                "🏢 Filter Berdasarkan Cabang:", list_cabang
             )
 
             if selected_cabang != "Semua Cabang":
