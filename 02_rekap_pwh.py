@@ -205,10 +205,97 @@ def plot_graph(summary_df: pd.DataFrame) -> plt.Figure:
     return fig
 
 
+def convert_all_branches_to_excel(
+    rekap_nasional: pd.DataFrame, df_rincian_cabang: pd.DataFrame
+) -> bytes:
+    """Mengonversi rekap Semua Cabang ke Excel dengan 2 sheet:
+    - Rekap Nasional: Rekap gabungan nasional
+    - Rincian Cabang: Rincian per cabang
+    """
+    output = io.BytesIO()
+    df_sheet1 = rekap_nasional.reset_index()
+
+    with ExcelWriter(output, engine="xlsxwriter") as writer:
+        # --- SHEET 1: REKAP GABUNGAN NASIONAL ---
+        df_sheet1.to_excel(writer, sheet_name="Rekap Nasional", index=False)
+
+        # --- SHEET 2: RINCIAN PER CABANG ---
+        df_rincian_cabang.to_excel(
+            writer, sheet_name="Rincian Cabang", index=False, startrow=3
+        )
+
+        workbook = writer.book
+        ws2 = writer.sheets["Rincian Cabang"]
+
+        title_format = workbook.add_format({
+            "bold": True,
+            "font_size": 14,
+            "font_name": "Arial",
+            "font_color": "#1F4E78",
+        })
+        subtitle_format = workbook.add_format({
+            "bold": True,
+            "font_size": 11,
+            "font_name": "Arial",
+            "font_color": "#333333",
+        })
+        total_row_format = workbook.add_format({
+            "bold": True,
+            "bg_color": "#E8F4F8",
+            "border": 1,
+        })
+
+        # Tulis teks judul pada baris teratas sheet Rincian Cabang
+        ws2.write(
+            0,
+            0,
+            "REKAPITULASI PASIEN HEMOFILIA BERDASARKAN KELOMPOK USIA",
+            title_format,
+        )
+        ws2.write(1, 0, "Cabang: Semua Cabang", subtitle_format)
+
+        # Terapkan highlight pada baris Total (di bagian paling akhir tabel)
+        if not df_rincian_cabang.empty:
+            for row_idx, row_data in df_rincian_cabang.iterrows():
+                if (
+                    row_data.get("Cabang") == "Total"
+                    or row_data.get("Kelompok Usia") == "Total"
+                ):
+                    excel_row = (
+                        row_idx + 4
+                    )  # offset 3 baris judul + 1 baris header tabel
+                    for col_idx, val in enumerate(row_data):
+                        ws2.write(
+                            excel_row,
+                            col_idx,
+                            "" if pd.isna(val) else val,
+                            total_row_format,
+                        )
+
+        # Penyesuaian lebar kolom otomatis untuk Rincian Cabang
+        for col_idx, col_name in enumerate(df_rincian_cabang.columns):
+            max_len = (
+                max(
+                    df_rincian_cabang[col_name]
+                    .fillna("")
+                    .astype(str)
+                    .map(len)
+                    .max()
+                    if not df_rincian_cabang.empty
+                    else 0,
+                    len(str(col_name)),
+                )
+                + 2
+            )
+            ws2.set_column(col_idx, col_idx, min(max_len, 50))
+
+    return output.getvalue()
+
+
 def convert_df_to_excel(
     df_excel: pd.DataFrame, cabang: str = "Semua Cabang"
 ) -> bytes:
-    """Mengonversi DataFrame yang sudah siap ke format Excel (xlsx) beserta komponen Headernya."""
+    """Mengonversi DataFrame per cabang ke format Excel (xlsx) beserta komponen Headernya."""
     output = io.BytesIO()
 
     with ExcelWriter(output, engine="xlsxwriter") as writer:
@@ -257,13 +344,18 @@ def convert_df_to_excel(
                         row_idx + 4
                     )  # offset 3 baris judul + 1 baris header tabel
                     for col_idx, val in enumerate(row_data):
-                        ws.write(excel_row, col_idx, val, total_row_format)
+                        ws.write(
+                            excel_row,
+                            col_idx,
+                            "" if pd.isna(val) else val,
+                            total_row_format,
+                        )
 
         # Penyesuaian lebar kolom otomatis
         for col_idx, col_name in enumerate(df_excel.columns):
             max_len = (
                 max(
-                    df_excel[col_name].astype(str).map(len).max()
+                    df_excel[col_name].fillna("").astype(str).map(len).max()
                     if not df_excel.empty
                     else 0,
                     len(str(col_name)),
@@ -346,31 +438,34 @@ else:
                     list_rekap_cabang.append(rekap_cb)
 
             if list_rekap_cabang:
-                df_excel_final = pd.concat(list_rekap_cabang, ignore_index=True)
+                df_excel_rincian = pd.concat(list_rekap_cabang, ignore_index=True)
 
                 # Hitung & tambahkan satu baris Total keseluruhan di bagian paling akhir tabel
-                numeric_cols = df_excel_final.select_dtypes(
+                numeric_cols = df_excel_rincian.select_dtypes(
                     include="number"
                 ).columns
-                grand_total = df_excel_final[numeric_cols].sum().to_dict()
+                grand_total = df_excel_rincian[numeric_cols].sum().to_dict()
                 grand_total["Cabang"] = "Total"
                 grand_total["Kelompok Usia"] = ""
 
-                df_excel_final = pd.concat(
-                    [df_excel_final, pd.DataFrame([grand_total])],
+                df_excel_rincian = pd.concat(
+                    [df_excel_rincian, pd.DataFrame([grand_total])],
                     ignore_index=True,
                 )
             else:
-                df_excel_final = pd.DataFrame()
+                df_excel_rincian = pd.DataFrame()
+
+            # Gabungkan sheet Rekap Nasional dan Rincian Cabang
+            excel_data = convert_all_branches_to_excel(
+                rekap_table, df_excel_rincian
+            )
         else:
             # Jika memilih cabang tertentu, gunakan rekap cabang tersebut saja (dengan baris Total)
             df_excel_final = rekap_table.copy()
             df_excel_final.index.name = "Kelompok Usia"
             df_excel_final = df_excel_final.reset_index()
             df_excel_final.insert(0, "Cabang", selected_cabang)
-
-        # Proses pembuatan file excel bytes
-        excel_data = convert_df_to_excel(df_excel_final, selected_cabang)
+            excel_data = convert_df_to_excel(df_excel_final, selected_cabang)
 
         cabang_clean = selected_cabang.replace(" ", "_").lower()
         st.download_button(
