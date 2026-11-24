@@ -91,10 +91,18 @@ def generate_captcha():
         st.session_state.captcha_op = random.choice(['+', '-', '*'])
 
 def reset_captcha():
-    """Mereset soal captcha agar berubah setelah percobaan gagal."""
+    """Mereset soal captcha dan mengosongkan input jawaban captcha."""
     st.session_state.captcha_num1 = random.randint(1, 10)
     st.session_state.captcha_num2 = random.randint(1, 10)
     st.session_state.captcha_op = random.choice(['+', '-', '*'])
+    st.session_state.captcha_input = ""
+
+def fail_login(message: str, refresh_captcha: bool = True):
+    """Menyimpan pesan error, mereset CAPTCHA agar sinkron dengan UI, lalu rerun."""
+    st.session_state.login_error = message
+    if refresh_captcha:
+        reset_captcha()
+    st.rerun()
 
 # -----------------------------
 # Fungsi Login
@@ -174,6 +182,10 @@ def check_password() -> bool:
 
             st.info("🔐 Silakan masukkan username dan password Anda.")
 
+            # Tampilkan pesan error dari percobaan login sebelumnya (jika ada)
+            if st.session_state.get("login_error"):
+                st.error(st.session_state.pop("login_error"))
+
             # --- FORM INPUT ---
             with st.form(key="login_form", clear_on_submit=False):
                 username = st.text_input("Username", key="login_username")
@@ -182,15 +194,12 @@ def check_password() -> bool:
                 st.markdown("---")
                 
                 # UI CAPTCHA
-                col_cap1, col_cap2 = st.columns([2, 1])
-                
-                with col_cap1:
-                    captcha_label = f"**Keamanan:** Hitung {num1} {op} {num2} = ?"
-                    captcha_input = st.text_input(captcha_label, key="captcha_input", help="Verifikasi keamanan.")
-                
-                with col_cap2:
-                    st.write("") 
-                    st.write("") 
+                captcha_label = f"**Keamanan:** Hitung {num1} {op} {num2} = ?"
+                captcha_input = st.text_input(
+                    captcha_label,
+                    key="captcha_input",
+                    help="Verifikasi keamanan."
+                )
                 
                 # Tombol Submit
                 login_submitted = st.form_submit_button("Masuk", type="primary", use_container_width=True)
@@ -198,19 +207,16 @@ def check_password() -> bool:
     # Logika Validasi
     if login_submitted:
         # 1. Validasi Input Kosong
-        if not username or not password or not captcha_input:
+        if not username or not password or not captcha_input.strip():
             st.error("Username, Password, dan CAPTCHA wajib diisi.")
-            return False
+            st.stop()
 
         # 2. Validasi CAPTCHA
         try:
-            if int(captcha_input) != correct_answer:
-                st.error("Jawaban CAPTCHA salah. Silakan coba lagi.")
-                reset_captcha() 
-                return False
+            if int(captcha_input.strip()) != correct_answer:
+                fail_login("Jawaban CAPTCHA salah. Silakan coba lagi.", refresh_captcha=True)
         except ValueError:
-            st.error("CAPTCHA harus berupa angka.")
-            return False
+            fail_login("CAPTCHA harus berupa angka.", refresh_captcha=False)
 
         # 3. Validasi Database
         try:
@@ -221,30 +227,24 @@ def check_password() -> bool:
                 user_data = result.mappings().fetchone()
 
             if not user_data:
-                st.error("Username atau password salah.")
-                reset_captcha() 
-                return False
-
-            password_to_check = password
+                fail_login("Username atau password salah.", refresh_captcha=True)
 
             # Verifikasi hash
-            if pwd_context.verify(password_to_check, user_data['hashed_password']):
+            if pwd_context.verify(password, user_data['hashed_password']):
                 st.session_state.auth_ok = True
                 st.session_state.username = user_data['username']
                 st.session_state.user_branch = user_data['cabang']
                 
-                if 'captcha_num1' in st.session_state:
-                    del st.session_state['captcha_num1']
+                for key in ('captcha_num1', 'captcha_num2', 'captcha_op', 'captcha_input', 'login_error'):
+                    st.session_state.pop(key, None)
                 
                 st.rerun()
             else:
-                st.error("Username atau password salah.")
-                reset_captcha()
-                return False
+                fail_login("Username atau password salah.", refresh_captcha=True)
 
         except Exception as e:
             st.error(f"Terjadi error saat login: {e}")
-            return False
+            st.stop()
 
     st.stop()
     return False
@@ -305,13 +305,11 @@ def main():
         role_label = "Admin (Semua Cabang)"
     else:
         # User selain Admin (User Cabang)
-        # Menambahkan 04a_rs_perawatan_hemofilia.py khusus user
         current_menu = {
             "📝 Input Data Hemofilia": "01_pwh_input.py",
             "📋 Tampil Data Hemofilia": "01a_tampil_data.py",
-            "🏥 RS Perawatan Hemofilia": "04a_rs_perawatan_hemofilia.py"  # <--- ITEM BARU KHUSUS USER
+            "🏥 RS Perawatan Hemofilia": "04a_rs_perawatan_hemofilia.py"
         }
-        # Menambahkan icon hospital untuk menu ke-3
         current_icons = ["pencil-square", "table", "hospital"]
         role_label = user_branch
 
