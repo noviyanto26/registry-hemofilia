@@ -91,11 +91,11 @@ def generate_captcha():
         st.session_state.captcha_op = random.choice(['+', '-', '*'])
 
 def reset_captcha():
-    """Mereset soal captcha dan mengosongkan input jawaban captcha."""
+    """Mereset soal captcha dan menandai input jawaban agar dikosongkan sebelum widget dirender."""
     st.session_state.captcha_num1 = random.randint(1, 10)
     st.session_state.captcha_num2 = random.randint(1, 10)
     st.session_state.captcha_op = random.choice(['+', '-', '*'])
-    st.session_state.captcha_input = ""
+    st.session_state.clear_captcha_input = True
 
 def fail_login(message: str, refresh_captcha: bool = True):
     """Menyimpan pesan error, mereset CAPTCHA agar sinkron dengan UI, lalu rerun."""
@@ -111,6 +111,10 @@ def check_password() -> bool:
     # Jika sudah login, langsung return True
     if st.session_state.get("auth_ok", False):
         return True
+
+    # Kosongkan input CAPTCHA SEBELUM widget dengan key="captcha_input" dibuat
+    if st.session_state.pop("clear_captcha_input", False):
+        st.session_state["captcha_input"] = ""
 
     # --- CSS CUSTOM UNTUK TAMPILAN LOGIN ---
     login_style = """
@@ -218,33 +222,30 @@ def check_password() -> bool:
         except ValueError:
             fail_login("CAPTCHA harus berupa angka.", refresh_captcha=False)
 
-        # 3. Validasi Database
+        # 3. Validasi Database (terpisah dari fail_login agar st.rerun tidak tertangkap except)
+        user_data = None
         try:
             username_cleaned = username.strip()
             with DB_ENGINE.connect() as conn:
                 query = text("SELECT username, hashed_password, cabang FROM pwh.users WHERE username = :user")
                 result = conn.execute(query, {"user": username_cleaned})
                 user_data = result.mappings().fetchone()
-
-            if not user_data:
-                fail_login("Username atau password salah.", refresh_captcha=True)
-
-            # Verifikasi hash
-            if pwd_context.verify(password, user_data['hashed_password']):
-                st.session_state.auth_ok = True
-                st.session_state.username = user_data['username']
-                st.session_state.user_branch = user_data['cabang']
-                
-                for key in ('captcha_num1', 'captcha_num2', 'captcha_op', 'captcha_input', 'login_error'):
-                    st.session_state.pop(key, None)
-                
-                st.rerun()
-            else:
-                fail_login("Username atau password salah.", refresh_captcha=True)
-
         except Exception as e:
             st.error(f"Terjadi error saat login: {e}")
             st.stop()
+
+        if not user_data or not pwd_context.verify(password, user_data['hashed_password']):
+            fail_login("Username atau password salah.", refresh_captcha=True)
+
+        # Login berhasil
+        st.session_state.auth_ok = True
+        st.session_state.username = user_data['username']
+        st.session_state.user_branch = user_data['cabang']
+        
+        for key in ('captcha_num1', 'captcha_num2', 'captcha_op', 'captcha_input', 'clear_captcha_input', 'login_error'):
+            st.session_state.pop(key, None)
+        
+        st.rerun()
 
     st.stop()
     return False
