@@ -15,45 +15,38 @@ st.set_page_config(page_title="PWH Input", page_icon="🩸", layout="wide")
 # Builder file Excel (multi-sheet) untuk semua tab
 # ------------------------------------------------------------------------------
 def build_excel_bytes() -> bytes:
-    # --- PERUBAHAN DI SINI: Query df_patients dimodifikasi untuk mengambil Keterangan Meninggal ---
     df_patients = run_df_branch("""
         SELECT
-    p.id,
-    p.full_name,
-    p.birth_place,
-    p.birth_date,
-    p.nik,
-    EXTRACT(YEAR FROM age(CURRENT_DATE, p.birth_date)) AS age_years,
-    p.blood_group,
-    p.rhesus,
-    p.gender,
-    p.occupation,
-    p.education,
-    p.address,
-    p.village,
-    p.district,
-    p.phone,
-    p.province,
-    p.city,
-    p.cabang, 
-    p.kota_cakupan,
-    p.note,
-    p.created_at,
-    CASE WHEN d.id IS NOT NULL THEN COALESCE(d.cause_of_death, 'Meninggal') ELSE NULL END AS keterangan_meninggal
-FROM pwh.patients p
-LEFT JOIN pwh.death d ON p.id = d.patient_id
-ORDER BY p.id
+            p.id,
+            p.full_name,
+            p.birth_place,
+            p.birth_date,
+            p.nik,
+            EXTRACT(YEAR FROM age(CURRENT_DATE, p.birth_date)) AS age_years,
+            p.blood_group,
+            p.rhesus,
+            p.gender,
+            p.occupation,
+            p.education,
+            p.address,
+            p.village,
+            p.district,
+            p.phone,
+            p.province,
+            p.city,
+            p.cabang, 
+            p.kota_cakupan,
+            p.note,
+            p.created_at,
+            CASE WHEN d.id IS NOT NULL THEN COALESCE(d.cause_of_death, 'Meninggal') ELSE NULL END AS keterangan_meninggal
+        FROM pwh.patients p
+        LEFT JOIN pwh.death d ON p.id = d.patient_id
+        ORDER BY p.id
     """)
-    # --- END PERUBAHAN ---
     
-    # 1. Reset index agar urut dari 0
     df_patients.reset_index(drop=True, inplace=True)
-    
-    # 2. Tambahkan kolom "No" di posisi paling kiri (indeks 0)
-    # Isinya adalah angka 1 sampai jumlah total data
     df_patients.insert(0, 'No', range(1, 1 + len(df_patients)))
 
-    # ============================================================
     df_diag = run_df_branch("""
         SELECT d.id, d.patient_id, p.full_name, d.hemo_type, d.severity, d.diagnosed_on, d.source
         FROM pwh.hemo_diagnoses d JOIN pwh.patients p ON p.id = d.patient_id
@@ -109,7 +102,6 @@ ORDER BY p.id
                     df_summary[col] = df_summary[col].dt.tz_localize(None)
             except AttributeError:
                 pass 
-    # --- END FIX ---
 
     # --- LOGIKA SUMMARY ---
     df_summary.reset_index(drop=True, inplace=True)
@@ -128,13 +120,10 @@ ORDER BY p.id
         "cause_of_death": "Penyebab Kematian"
     })
     
-    # --- PERUBAHAN DI SINI: Update Map Kolom Export Pasien ---
     alias_patients_updated = ALIAS_PATIENTS.copy()
     alias_patients_updated.update({"keterangan_meninggal": "Keterangan Meninggal"})
     
     a_patients  = _alias_df(df_patients, alias_patients_updated)
-    # --- END PERUBAHAN ---
-    
     a_diag      = _alias_df(df_diag, ALIAS_DIAG)
     a_inh       = _alias_df(df_inh, ALIAS_INH)
     a_virus     = _alias_df(df_virus, ALIAS_VIRUS)
@@ -167,10 +156,8 @@ ORDER BY p.id
         for sheet, df_sheet in sheet_map.items():
             ws = writer.sheets[sheet]
             for col_idx, col_name in enumerate(df_sheet.columns):
-                # PERBAIKAN: Menggunakan lambda str(x) yang lebih aman untuk menghindari error float
                 max_len_data = df_sheet[col_name].map(lambda x: len(str(x))).max() if not df_sheet.empty else 0
                 max_len = max(max_len_data, len(str(col_name)))
-                
                 ws.set_column(col_idx, col_idx, min(max_len + 2, 50))
     return output.getvalue()
 
@@ -183,7 +170,7 @@ def build_bulk_template_bytes() -> bytes:
     rhesus = RHESUS or ["+","-"]
     genders = GENDERS or ["Laki-laki", "Perempuan"]
     education_levels = EDUCATION_LEVELS[1:] if EDUCATION_LEVELS and EDUCATION_LEVELS[0] == "" else EDUCATION_LEVELS
-    hemo_types = HEMO_TYPES or ["A", "B", "vWD", "Other","Factor I deficiency","Factor II deficiency","Factor V deficiency","Factor V+VIII deficiency","Factor VII deficiency",    "Factor X deficiency","Factor XI deficiency","Factor XIII deficiency","Rare factor deficiency: type unknown","Platelet disorders: Glanzmann thrombasthenia", "Platelet disorders: Bernard Soulier Syndrome","Platelet disorders: other or unknown"]
+    hemo_types = HEMO_TYPES or ["A", "B", "vWD", "Other","Factor I deficiency","Factor II deficiency","Factor V deficiency","Factor V+VIII deficiency","Factor VII deficiency","Factor X deficiency","Factor XI deficiency","Factor XIII deficiency","Rare factor deficiency: type unknown","Platelet disorders: Glanzmann thrombasthenia", "Platelet disorders: Bernard Soulier Syndrome","Platelet disorders: other or unknown"]
     severities = SEVERITY_CHOICES or ["Ringan","Sedang","Berat","Tidak diketahui"]
     inhibitor_factors = INHIB_FACTORS or ["FVIII","FIX"]
     virus_tests = VIRUS_TESTS or ["HBsAg","Anti-HCV","HIV"]
@@ -250,9 +237,6 @@ def build_bulk_template_bytes() -> bytes:
         ],
     }
 
-    import io
-    from pandas import ExcelWriter
-
     def _col_letter(n: int) -> str:
         s = ""
         while True:
@@ -311,7 +295,7 @@ def build_bulk_template_bytes() -> bytes:
                         source = f"={named_range}"
                         ws.data_validation(1, idx, max_rows, idx, {"validate": "list", "source": source})
                     else:
-                         st.warning(f"Invalid list source for '{col_name}' in sheet '{sheet}': Expected named range string.") 
+                        st.warning(f"Invalid list source for '{col_name}' in sheet '{sheet}': Expected named range string.") 
 
                 elif col_type == "date":
                     ws.set_column(idx, idx, 14, fmt_date)
@@ -326,7 +310,7 @@ def build_bulk_template_bytes() -> bytes:
                         "error_message": "Hanya angka bulat positif yang diizinkan."
                     })
                 elif col_type == "number":
-                     ws.data_validation(1, idx, max_rows, idx, {
+                    ws.data_validation(1, idx, max_rows, idx, {
                         "validate": "decimal",
                         "criteria": ">=",
                         "value": 0.0, 
@@ -339,13 +323,13 @@ def build_bulk_template_bytes() -> bytes:
             ws.write(max_rows + 2, 0, "Catatan: baris kosong akan diabaikan saat import.", fmt_note)
     return bio.getvalue()
 
+
 st.title("🩸 Form Input Penyandang Hemofilia")
 
-# --- TAMBAHAN: Tombol Refresh Cache ---
+# --- Tombol Refresh Cache ---
 if st.button("🔄 Refresh Data"):
-    st.cache_data.clear() # Membersihkan semua st.cache_data
-    st.rerun() # Memuat ulang aplikasi
-# --------------------------------------
+    st.cache_data.clear()
+    st.rerun()
 
 # ------------------------------------------------------------------------------
 # KONEKSI DATABASE
@@ -357,7 +341,7 @@ def _resolve_db_url() -> str:
     except Exception: pass
     env = os.environ.get("DATABASE_URL") or os.getenv("DATABASE_URL")
     if env: return env
-    st.error('DATABASE_URL tidak ditemukan. Isi `.streamlit/secrets.toml` dengan format:\n''DATABASE_URL = "postgresql+psycopg2://USER:PASSWORD@127.0.0.1:5432/pwhdb"')
+    st.error('DATABASE_URL tidak ditemukan. Isi `.streamlit/secrets.toml` dengan format:\nDATABASE_URL = "postgresql+psycopg2://USER:PASSWORD@127.0.0.1:5432/pwhdb"')
     st.stop()
 
 
@@ -373,7 +357,7 @@ try:
 except Exception as e:
     st.error(f"Gagal konek ke Postgres: {e}")
     st.stop()
-    
+
 # ------------------------------------------------------------------------------
 # FILTER CABANG BERDASARKAN LOGIN
 # ------------------------------------------------------------------------------
@@ -384,7 +368,6 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
     query_upper = query_filtered.upper()
     
     if current_user_branch and current_user_branch != "ALL" and "PWH.PATIENTS" in query_upper:
-        
         params = params or {}
         params["branch"] = current_user_branch
         
@@ -396,7 +379,6 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
         elif "FROM PWH.PATIENTS" in query_upper:
             from_index = query_upper.find("FROM PWH.PATIENTS")
             join_index = query_upper.find("JOIN PWH.PATIENTS")
-            
             if from_index != -1 and (from_index < join_index or join_index == -1):
                 alias_prefix = "" 
         
@@ -405,15 +387,12 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
                 return pd.read_sql(text(query_filtered), conn, params=params or {})
 
         filter_string = f"{alias_prefix}cabang = :branch"
-
         where_exists = "WHERE" in query_upper
         
         if where_exists:
-            import re
             query_filtered = re.sub(r"\bWHERE\b", f"WHERE {filter_string} AND ", query_filtered, count=1, flags=re.IGNORECASE)
         else:
             append_points_upper = ["ORDER BY", "GROUP BY", "LIMIT", ";"]
-            
             injected = False
             for point in append_points_upper:
                 point_idx = query_upper.find(point)
@@ -422,7 +401,6 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
                     query_filtered = query_filtered.replace(point_case_sensitive, f" WHERE {filter_string} {point_case_sensitive}", 1)
                     injected = True
                     break
-            
             if not injected:
                 query_filtered += f" WHERE {filter_string}"
 
@@ -435,18 +413,19 @@ def run_df_branch(query: str, params: dict | None = None) -> pd.DataFrame:
 # ------------------------------------------------------------------------------
 def run_exec(sql: str, params: dict | None = None):
     try:
-        with engine.connect() as conn:
+        with engine.begin() as conn:
             conn.execute(text(sql), params or {})
-            conn.commit()
     except IntegrityError as e:
-        # Menangkap error khusus untuk duplikat NIK
         if "unique_nik" in str(e):
             st.error("Gagal menyimpan data: NIK yang Anda masukkan sudah terdaftar pada sistem. Silakan periksa kembali NIK pasien.")
-            st.stop() # Menghentikan eksekusi lebih lanjut agar tidak crash
+            st.stop()
         else:
-            # Tampilkan pesan error lain jika ada constraint yang berbeda
             st.error(f"Gagal menyimpan data ke database: {e}")
             st.stop()
+    except Exception as e:
+        st.error(f"Terjadi kesalahan saat menyimpan ke database: {e}")
+        st.stop()
+
 # ------------------------------------------------------------------------------
 # Ambil data referensi dari DB
 # ------------------------------------------------------------------------------
@@ -498,7 +477,6 @@ def fetch_all_wilayah_details() -> pd.DataFrame:
             return df
     except Exception as e:
         st.warning(f"Gagal memuat data wilayah: {e}")
-        pass
     return pd.DataFrame({
         'village_name': ['MUSTIKA JAYA'],
         'district_name': ['MUSTIKA JAYA'],
@@ -517,7 +495,6 @@ def fetch_hmhi_branches() -> pd.DataFrame:
             return df
     except Exception as e:
         st.warning(f"Gagal memuat data Cabang HMHI: {e}")
-        pass
     return pd.DataFrame({
         'cabang': ['BEKASI'],
         'kota_cakupan': ['KOTA BEKASI, KAB. BEKASI']
@@ -533,7 +510,6 @@ def fetch_hospitals() -> list[str]:
             return [""] + df["hospital_display"].tolist()
     except Exception as e:
         st.warning(f"Gagal mengambil daftar RS: {e}")
-        pass
     return ["", "RSUPN Dr. Cipto Mangunkusumo - Jakarta Pusat - DKI Jakarta", "RS Kanker Dharmais - Jakarta Barat - DKI Jakarta"]
 
 @st.cache_data(show_spinner="Memuat daftar pasien...")
@@ -608,20 +584,23 @@ def insert_patient(payload: dict) -> int:
     except IntegrityError as e:
         err_msg = str(e).lower()
         if "unique_nik" in err_msg or "duplicate key" in err_msg:
-            print(f"NIK {payload['nik']} sudah ada, mengambil ID existing...")
-            
             find_sql = "SELECT id FROM pwh.patients WHERE nik = :nik"
             with engine.begin() as conn:
                 existing_id = conn.execute(text(find_sql), {"nik": payload["nik"]}).scalar()
-                
                 if existing_id:
                     return int(existing_id)
-        
         raise e
 
 def update_patient(id: int, payload: dict):
     payload['id'] = id
-    sql = "UPDATE pwh.patients SET full_name=:full_name, birth_place=:birth_place, birth_date=:birth_date, nik=:nik, blood_group=:blood_group, rhesus=:rhesus, gender=:gender, occupation=:occupation, education=:education, address=:address, phone=:phone, province=:province, city=:city, note=:note, village=:village, district=:district, cabang=:cabang, kota_cakupan=:kota_cakupan WHERE id=:id;"
+    sql = """
+        UPDATE pwh.patients 
+        SET full_name=:full_name, birth_place=:birth_place, birth_date=:birth_date, nik=:nik, 
+            blood_group=:blood_group, rhesus=:rhesus, gender=:gender, occupation=:occupation, 
+            education=:education, address=:address, phone=:phone, province=:province, city=:city, 
+            note=:note, village=:village, district=:district, cabang=:cabang, kota_cakupan=:kota_cakupan 
+        WHERE id=:id;
+    """
     run_exec(sql, payload)
 
 def insert_diagnosis(patient_id: int, hemo_type: str, severity: str, diagnosed_on: date | None, source: str | None):
@@ -673,7 +652,6 @@ def update_treatment_hospital(id: int, payload: dict):
 def delete_treatment_hospital(id: int):
     current_user_branch = st.session_state.get("user_branch", None)
     is_admin = (current_user_branch == "ALL" or not current_user_branch)
-    
     params = {"id": id}
 
     if not is_admin:
@@ -697,7 +675,6 @@ def delete_treatment_hospital(id: int):
 def delete_hemo_diagnosis(id: int):
     current_user_branch = st.session_state.get("user_branch", None)
     is_admin = (current_user_branch == "ALL" or not current_user_branch)
-    
     params = {"id": id}
 
     if not is_admin:
@@ -721,7 +698,6 @@ def delete_hemo_diagnosis(id: int):
 def delete_hemo_inhibitor(id: int):
     current_user_branch = st.session_state.get("user_branch", None)
     is_admin = (current_user_branch == "ALL" or not current_user_branch)
-    
     params = {"id": id}
 
     if not is_admin:
@@ -745,7 +721,6 @@ def delete_hemo_inhibitor(id: int):
 def delete_virus_test(id: int):
     current_user_branch = st.session_state.get("user_branch", None)
     is_admin = (current_user_branch == "ALL" or not current_user_branch)
-    
     params = {"id": id}
 
     if not is_admin:
@@ -769,7 +744,6 @@ def delete_virus_test(id: int):
 def delete_death_record(id: int):
     current_user_branch = st.session_state.get("user_branch", None)
     is_admin = (current_user_branch == "ALL" or not current_user_branch)
-    
     params = {"id": int(id)}
 
     if not is_admin:
@@ -793,7 +767,6 @@ def delete_death_record(id: int):
 def delete_contact(id: int):
     current_user_branch = st.session_state.get("user_branch", None)
     is_admin = (current_user_branch == "ALL" or not current_user_branch)
-    
     params = {"id": id}
 
     if not is_admin:
@@ -819,7 +792,6 @@ def delete_patient(patient_id: int):
     is_admin = (current_user_branch == "ALL" or not current_user_branch)
     params = {"patient_id": int(patient_id)}
     
-    # Validasi cabang jika bukan admin
     if not is_admin:
         params["branch"] = current_user_branch
         sql_check = "SELECT id FROM pwh.patients WHERE id = :patient_id AND cabang = :branch"
@@ -828,7 +800,6 @@ def delete_patient(patient_id: int):
             if not res:
                 raise Exception("Gagal menghapus: Data pasien tidak ditemukan di cabang Anda.")
                 
-    # Hapus data secara berurutan mulai dari tabel yang memiliki foreign key ke patient_id
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM pwh.contacts WHERE patient_id = :patient_id"), params)
         conn.execute(text("DELETE FROM pwh.death WHERE patient_id = :patient_id"), params)
@@ -836,8 +807,6 @@ def delete_patient(patient_id: int):
         conn.execute(text("DELETE FROM pwh.hemo_inhibitors WHERE patient_id = :patient_id"), params)
         conn.execute(text("DELETE FROM pwh.treatment_hospital WHERE patient_id = :patient_id"), params)
         conn.execute(text("DELETE FROM pwh.virus_tests WHERE patient_id = :patient_id"), params)
-        
-        # Terakhir hapus data utama di tabel patients
         conn.execute(text("DELETE FROM pwh.patients WHERE id = :patient_id"), params)
 
 def insert_death_record(payload: dict):
@@ -859,7 +828,7 @@ def update_contact(id: int, payload: dict):
     run_exec(sql, payload)
 
 # ------------------------------------------------------------------------------
-# Import Bulk Excel (DIPERBAIKI)
+# Import Bulk Excel
 # ------------------------------------------------------------------------------
 def _to_bool(x):
     s = str(x).strip().lower()
@@ -889,10 +858,8 @@ def import_bulk_excel(file) -> dict:
                 df = df.rename(columns=rename_map) 
             for c in cols:
                 if c not in df.columns: df[c] = None
-            
             df = df.dropna(how="all")
             return df.where(pd.notnull(df), None)
-            
         return pd.DataFrame(columns=cols)
 
     MAP_PAT = {
@@ -1054,7 +1021,7 @@ def import_bulk_excel(file) -> dict:
                 try:
                     insert_func(r, pid)
                     count += 1
-                except Exception as e:
+                except Exception:
                     pass
         results[key] = count 
 
@@ -1064,10 +1031,27 @@ def import_bulk_excel(file) -> dict:
 # Fungsi Helper untuk UI
 # ------------------------------------------------------------------------------
 def get_safe_index(options, value):
+    """Mencari index nilai pada list options (mendukung case-insensitive)."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return 0
     try:
         return options.index(value)
     except (ValueError, TypeError):
+        val_str = str(value).strip().lower()
+        if val_str:
+            for idx, opt in enumerate(options):
+                if opt is not None and str(opt).strip().lower() == val_str:
+                    return idx
         return 0
+
+def with_existing_option(options: list, value) -> list:
+    """Memastikan nilai lama dari database tetap tersedia di opsi dropdown agar tidak hilang saat update."""
+    opts = list(options)
+    if value is not None and not (isinstance(value, float) and pd.isna(value)):
+        val_clean = str(value).strip()
+        if val_clean and not any(str(o).strip().lower() == val_clean.lower() for o in opts if o is not None):
+            opts.append(val_clean)
+    return opts
 
 def clear_session_state(prefix):
     keys_to_del = [k for k in st.session_state if k.startswith(prefix)]
@@ -1091,16 +1075,17 @@ def set_editing_state(state_key, data_id, table_name):
         return
     
     query = f"SELECT t.* FROM {table_name} t"
-    
     if table_name != 'pwh.patients':
         query += " JOIN pwh.patients p ON t.patient_id = p.id"
-        
     query += f" WHERE t.id = {int(data_id)};"
     
     data = run_df_branch(query) 
     
     if not data.empty:
-        st.session_state[state_key] = data.to_dict('records')[0]
+        record = data.to_dict('records')[0]
+        # Sanitasi nilai NaN pandas menjadi None Python standar
+        clean_record = {k: (None if pd.isna(v) else v) for k, v in record.items()}
+        st.session_state[state_key] = clean_record
     else:
         st.error(f"ID {data_id} tidak ditemukan di tabel {table_name} (atau bukan bagian dari cabang Anda).")
         if state_key in st.session_state:
@@ -1144,7 +1129,6 @@ def format_patient_name(patient_id):
         return "Pilih pasien..."
     return patient_id_map.get(patient_id, "ID tidak ditemukan")
 
-# --- TAMBAHAN BARU: Fungsi untuk highlight warna merah pasien meninggal ---
 df_deceased_global = run_df_branch("SELECT patient_id FROM pwh.death")
 deceased_ids_global = df_deceased_global['patient_id'].tolist() if not df_deceased_global.empty else []
 
@@ -1153,7 +1137,6 @@ def style_deceased_row(df_display, orig_df, id_col):
     if orig_df.empty or df_display.empty:
         return df_display
     
-    # Buat mask per baris sesuai tabel awal (karena index bisa di-reset)
     mask = orig_df[id_col].isin(deceased_ids_global).values
     mask_series = pd.Series(mask, index=df_display.index)
     
@@ -1163,20 +1146,28 @@ def style_deceased_row(df_display, orig_df, id_col):
         return [''] * len(row)
         
     return df_display.style.apply(highlight, axis=1)
-# --- END TAMBAHAN BARU ---
 
-# Patient
+
+# ==============================================================================
+# Tab 1: Patient (DIPERBAIKI)
+# ==============================================================================
 if tab_pat:
     with tab_pat:
-        st.subheader("🧑‍⚕️ Tambah Data Pasien")
+        st.subheader("🧑‍⚕️ Tambah / Edit Data Pasien")
+
+        # Tampilkan pesan sukses persisten setelah st.rerun()
+        if st.session_state.get("pat_success_msg"):
+            st.success(st.session_state.pop("pat_success_msg"))
 
         pat_data = st.session_state.get('patient_to_edit', {})
+        edit_id = pat_data.get('id', 'new')
 
         if pat_data:
-            st.info(f"Mode Edit untuk Pasien: {pat_data.get('full_name')} (ID: {pat_data.get('id')})")
+            st.info(f"Mode Edit untuk Pasien: **{pat_data.get('full_name')}** (ID: {pat_data.get('id')})")
             if st.button("❌ Batal Edit", key="cancel_pat_edit"):
                 clear_session_state('patient_to_edit')
-                clear_session_state('patient_matches') 
+                clear_session_state('patient_matches')
+                clear_session_state('pat_')
                 st.rerun()
 
         df_wilayah_all = fetch_all_wilayah_details()
@@ -1187,85 +1178,141 @@ if tab_pat:
         is_admin_form = (user_branch_form == "ALL" or not user_branch_form)
 
         with st.container(border=True):
-            full_name = st.text_input("Nama Lengkap*", value=pat_data.get('full_name', ''))
+            full_name = st.text_input(
+                "Nama Lengkap*", 
+                value=pat_data.get('full_name') or '',
+                key=f"pat_full_name_{edit_id}"
+            )
 
             c1, c2, c3 = st.columns(3)
-            with c1: birth_place = st.text_input("Tempat Lahir*", value=pat_data.get('birth_place', ''))
+            with c1: 
+                birth_place = st.text_input(
+                    "Tempat Lahir*", 
+                    value=pat_data.get('birth_place') or '',
+                    key=f"pat_birth_place_{edit_id}"
+                )
             with c2:
                 birth_date_val = pd.to_datetime(pat_data.get('birth_date')).date() if pd.notna(pat_data.get('birth_date')) else None
-                # Tentukan batas minimal dan maksimal
                 min_date_allowed = date(1920, 1, 1)
                 max_date_allowed = date.today()
 
-                # Mencegah crash jika ada data kotor (misal: tahun 0009) di database
                 safe_birth_date_val = birth_date_val
                 if safe_birth_date_val:
                     if safe_birth_date_val < min_date_allowed:
-                        safe_birth_date_val = min_date_allowed # Jika tahun 9, akan digeser paksa ke 1920
+                        safe_birth_date_val = min_date_allowed
                     elif safe_birth_date_val > max_date_allowed:
                         safe_birth_date_val = max_date_allowed
 
-                # Masukkan safe_birth_date_val ke dalam widget
                 birth_date = st.date_input(
                     "Tanggal Lahir*", 
                     value=safe_birth_date_val, 
                     format="YYYY-MM-DD", 
                     min_value=min_date_allowed, 
-                    max_value=max_date_allowed
+                    max_value=max_date_allowed,
+                    key=f"pat_birth_date_{edit_id}"
                 )
             with c3:
-                nik = st.text_input("NIK*", value=pat_data.get('nik', ''), max_chars=16)
+                nik = st.text_input(
+                    "NIK*", 
+                    value=pat_data.get('nik') or '', 
+                    max_chars=16,
+                    key=f"pat_nik_{edit_id}"
+                )
 
             c_pekerjaan, c_pendidikan = st.columns(2)
             with c_pekerjaan:
-                occupation_idx = get_safe_index(occupations_list, pat_data.get('occupation'))
-                occupation = st.selectbox("Pekerjaan", occupations_list, index=occupation_idx)
+                occ_opts = with_existing_option(occupations_list, pat_data.get('occupation'))
+                occupation_idx = get_safe_index(occ_opts, pat_data.get('occupation'))
+                occupation = st.selectbox(
+                    "Pekerjaan", 
+                    occ_opts, 
+                    index=occupation_idx,
+                    key=f"pat_occupation_{edit_id}"
+                )
             with c_pendidikan:
-                education_idx = get_safe_index(EDUCATION_LEVELS, pat_data.get('education'))
-                education = st.selectbox("Pendidikan Terakhir", EDUCATION_LEVELS, index=education_idx)
+                edu_opts = with_existing_option(EDUCATION_LEVELS, pat_data.get('education'))
+                education_idx = get_safe_index(edu_opts, pat_data.get('education'))
+                education = st.selectbox(
+                    "Pendidikan Terakhir", 
+                    edu_opts, 
+                    index=education_idx,
+                    key=f"pat_education_{edit_id}"
+                )
 
             c5, c6, c7, c8 = st.columns(4)
             with c5:
-                blood_group_idx = get_safe_index(BLOOD_GROUPS, pat_data.get('blood_group'))
-                blood_group = st.selectbox("Golongan Darah", BLOOD_GROUPS, index=blood_group_idx)
+                bg_opts = with_existing_option(BLOOD_GROUPS, pat_data.get('blood_group'))
+                blood_group_idx = get_safe_index(bg_opts, pat_data.get('blood_group'))
+                blood_group = st.selectbox(
+                    "Golongan Darah", 
+                    bg_opts, 
+                    index=blood_group_idx,
+                    key=f"pat_blood_group_{edit_id}"
+                )
             with c6:
-                rhesus_idx = get_safe_index(RHESUS, pat_data.get('rhesus'))
-                rhesus = st.selectbox("Rhesus", RHESUS, index=rhesus_idx)
+                rh_opts = with_existing_option(RHESUS, pat_data.get('rhesus'))
+                rhesus_idx = get_safe_index(rh_opts, pat_data.get('rhesus'))
+                rhesus = st.selectbox(
+                    "Rhesus", 
+                    rh_opts, 
+                    index=rhesus_idx,
+                    key=f"pat_rhesus_{edit_id}"
+                )
             with c7:
-                gender_idx = get_safe_index(GENDERS, pat_data.get('gender'))
-                gender = st.selectbox("Jenis Kelamin", GENDERS, index=gender_idx)
+                gen_opts = with_existing_option(GENDERS, pat_data.get('gender'))
+                gender_idx = get_safe_index(gen_opts, pat_data.get('gender'))
+                gender = st.selectbox(
+                    "Jenis Kelamin", 
+                    gen_opts, 
+                    index=gender_idx,
+                    key=f"pat_gender_{edit_id}"
+                )
             with c8:
-                phone = st.text_input("No. Ponsel", max_chars=50, value=pat_data.get('phone', ''))
+                phone = st.text_input(
+                    "No. Ponsel", 
+                    max_chars=50, 
+                    value=pat_data.get('phone') or '',
+                    key=f"pat_phone_{edit_id}"
+                )
 
-            address = st.text_area("Alamat", value=pat_data.get('address', ''))
+            address = st.text_area(
+                "Alamat", 
+                value=pat_data.get('address') or '',
+                key=f"pat_address_{edit_id}"
+            )
 
-            village_name, district_name, city_name, province_name = "", "", "", ""
+            # --- PERBAIKAN: Pertahankan data wilayah lama agar tidak hilang saat update ---
+            v_orig = (pat_data.get('village') or "").strip() if pat_data else ""
+            d_orig = (pat_data.get('district') or "").strip() if pat_data else ""
+            c_orig = (pat_data.get('city') or "").strip() if pat_data else ""
+            p_orig = (pat_data.get('province') or "").strip() if pat_data else ""
+
+            village_name = v_orig
+            district_name = d_orig
+            city_name = c_orig
+            province_name = p_orig
+
             village_display_val = ""
-            if pat_data:
-                v = pat_data.get('village')
-                d = pat_data.get('district')
-                c = pat_data.get('city')
-                p = pat_data.get('province')
-                if v and d and c and p:
-                    village_display_val = f"{v} - {d} - {c} - {p}"
-                if not village_display_val:
-                    village_name = v or ""
-                    district_name = d or ""
-                    city_name = c or ""
-                    province_name = p or ""
+            if v_orig and d_orig and c_orig and p_orig:
+                village_display_val = f"{v_orig} - {d_orig} - {c_orig} - {p_orig}"
 
-            # --- PERBAIKAN: Filter data wilayah dengan text_input ---
-            search_desa = st.text_input("🔍 Cari Kelurahan/Desa (ketik minimal 3 huruf)", "")
+            search_desa = st.text_input(
+                "🔍 Cari Kelurahan/Desa (ketik minimal 3 huruf untuk mengubah wilayah)", 
+                "",
+                key=f"pat_search_desa_{edit_id}"
+            )
 
-            # Hanya memuat list jika user mengetik sesuatu, atau jika sedang mode edit
             if len(search_desa) >= 3:
                 filtered_df = df_wilayah_all[df_wilayah_all['full_display'].str.contains(search_desa, case=False, na=False)]
-                village_list = [""] + filtered_df['full_display'].tolist()
+                filtered_list = filtered_df['full_display'].tolist()
+                if village_display_val and not any(x.upper() == village_display_val.upper() for x in filtered_list):
+                    village_list = ["", village_display_val] + filtered_list
+                else:
+                    village_list = [""] + filtered_list
             elif village_display_val:
                 village_list = ["", village_display_val]
             else:
                 village_list = [""]
-            # --------------------------------------------------------
 
             village_idx = get_safe_index(village_list, village_display_val)
 
@@ -1274,11 +1321,13 @@ if tab_pat:
                 selected_village_display = st.selectbox(
                     "Kelurahan/Desa (pilih ini untuk autofill)", 
                     village_list,
-                    index=village_idx
+                    index=village_idx,
+                    key=f"pat_village_sel_{edit_id}"
                 )
             
+            # Jika pengguna memilih wilayah baru dari dropdown, perbarui keempat field wilayah
             if selected_village_display:
-                match = df_wilayah_all[df_wilayah_all['full_display'] == selected_village_display]
+                match = df_wilayah_all[df_wilayah_all['full_display'].str.upper() == selected_village_display.strip().upper()]
                 if not match.empty:
                     village_name = match.iloc[0]['village_name']
                     district_name = match.iloc[0]['district_name']
@@ -1286,25 +1335,25 @@ if tab_pat:
                     province_name = match.iloc[0]['province_name']
 
             with col_dis:
-                st.text_input("Kecamatan (otomatis)", value=district_name, disabled=True)
+                st.text_input("Kecamatan (otomatis)", value=district_name, disabled=True, key=f"pat_dis_disp_{edit_id}")
             
             col_city, col_prov = st.columns(2)
             with col_city:
-                st.text_input("Kabupaten/Kota (otomatis)", value=city_name, disabled=True)
+                st.text_input("Kabupaten/Kota (otomatis)", value=city_name, disabled=True, key=f"pat_city_disp_{edit_id}")
             with col_prov:
-                st.text_input("Propinsi (otomatis)", value=province_name, disabled=True)
+                st.text_input("Propinsi (otomatis)", value=province_name, disabled=True, key=f"pat_prov_disp_{edit_id}")
+            # --- END PERBAIKAN WILAYAH ---
             
             st.markdown("---") 
             
-            cabang_list = [""] + df_hmhi['cabang'].unique().tolist()
-            kota_cakupan_val = ""
-
             default_cabang = ""
             if pat_data:
-                default_cabang = pat_data.get('cabang') or ""
+                default_cabang = (pat_data.get('cabang') or "").strip()
             elif not is_admin_form and user_branch_form:
                 default_cabang = user_branch_form
 
+            cabang_list = with_existing_option([""] + df_hmhi['cabang'].unique().tolist(), default_cabang)
+            kota_cakupan_val = ""
             cabang_idx = get_safe_index(cabang_list, default_cabang)
 
             col_cabang, col_cakupan = st.columns(2)
@@ -1313,25 +1362,32 @@ if tab_pat:
                     "HMHI Cabang",
                     cabang_list,
                     index=cabang_idx,
-                    disabled=(not is_admin_form) 
+                    disabled=(not is_admin_form),
+                    key=f"pat_cabang_{edit_id}"
                 )
 
             active_cabang = user_branch_form if not is_admin_form and user_branch_form else selected_cabang
             
             if active_cabang:
-                match_cabang = df_hmhi[df_hmhi['cabang'] == active_cabang]
+                match_cabang = df_hmhi[df_hmhi['cabang'].str.upper() == active_cabang.strip().upper()]
                 if not match_cabang.empty:
                     kota_cakupan_val = match_cabang.iloc[0]['kota_cakupan'] or ""
+                elif pat_data:
+                    kota_cakupan_val = pat_data.get('kota_cakupan') or ""
             elif pat_data and not active_cabang: 
-                 kota_cakupan_val = pat_data.get('kota_cakupan', '')
+                kota_cakupan_val = pat_data.get('kota_cakupan') or ""
             
             with col_cakupan:
-                st.text_input("Kota Cakupan Cabang (otomatis)", value=kota_cakupan_val, disabled=True)
+                st.text_input("Kota Cakupan Cabang (otomatis)", value=kota_cakupan_val, disabled=True, key=f"pat_cakupan_disp_{edit_id}")
 
-            note = st.text_area("Catatan (opsional)", value=pat_data.get('note', ''))
+            note = st.text_area(
+                "Catatan (opsional)", 
+                value=pat_data.get('note') or '',
+                key=f"pat_note_{edit_id}"
+            )
 
             form_label = "💾 Perbarui Pasien" if pat_data else "💾 Simpan Pasien Baru"
-            submitted = st.button(form_label, type="primary")
+            submitted = st.button(form_label, type="primary", key=f"pat_submit_{edit_id}")
 
         if submitted:
             nik_cleaned = (nik or "").strip()
@@ -1348,11 +1404,15 @@ if tab_pat:
                 st.error(f"NIK harus terdiri dari 16 digit. NIK yang Anda masukkan ({nik_cleaned}) memiliki {len(nik_cleaned)} digit.")
             else:
                 payload = {
-                    "full_name": full_name.strip(), "birth_place": (birth_place or "").strip() or None,
-                    "birth_date": birth_date, "nik": nik_cleaned, 
-                    "blood_group": blood_group or None, "rhesus": rhesus or None,
+                    "full_name": full_name.strip(),
+                    "birth_place": (birth_place or "").strip() or None,
+                    "birth_date": birth_date,
+                    "nik": nik_cleaned, 
+                    "blood_group": blood_group or None,
+                    "rhesus": rhesus or None,
                     "gender": gender or None,
-                    "occupation": occupation or None, "education": education or None,
+                    "occupation": occupation or None,
+                    "education": education or None,
                     "address": (address or "").strip() or None,
                     "phone": (phone or "").strip() or None, 
                     "province": (province_name or "").strip() or None,
@@ -1366,7 +1426,7 @@ if tab_pat:
                 
                 if not is_admin_form and user_branch_form:
                     payload["cabang"] = user_branch_form
-                    match_cabang = df_hmhi[df_hmhi['cabang'] == user_branch_form]
+                    match_cabang = df_hmhi[df_hmhi['cabang'].str.upper() == user_branch_form.strip().upper()]
                     if not match_cabang.empty:
                         payload["kota_cakupan"] = match_cabang.iloc[0]['kota_cakupan'] or None
                     else:
@@ -1384,19 +1444,18 @@ if tab_pat:
                         st.error(f"Nama '{payload['full_name']}' sudah digunakan oleh pasien lain (ID: {existing_name.iloc[0]['id']}) di cabang Anda. Gunakan nama yang unik.")
                     else:
                         update_patient(pat_data['id'], payload)
-                        st.success(f"Pasien dengan ID {pat_data['id']} berhasil diperbarui.")
 
-                        # --- TAMBAHAN: Auto-input diagnosis jika belum ada ---
                         cek_diag = run_df_branch("SELECT id FROM pwh.hemo_diagnoses WHERE patient_id = :pid", {"pid": pat_data['id']})
                         if cek_diag.empty:
                             insert_diagnosis(pat_data['id'], "Other", "Tidak diketahui", None, "Auto-input sistem")
-                        # -----------------------------------------------------
                         
+                        st.session_state["pat_success_msg"] = f"Data pasien **{payload['full_name']}** (ID: {pat_data['id']}) berhasil diperbarui dan disimpan."
                         fetch_all_wilayah_details.clear() 
                         fetch_hmhi_branches.clear() 
                         get_all_patients_for_selection.clear()
                         clear_session_state('patient_to_edit')
                         clear_session_state('patient_matches')
+                        clear_session_state('pat_')
                         st.rerun()
                 else:
                     q_check_nik = "SELECT id FROM pwh.patients WHERE nik = :nik"
@@ -1410,17 +1469,16 @@ if tab_pat:
                         st.error(f"Nama '{payload['full_name']}' sudah ada di database (ID: {existing_name.iloc[0]['id']}) di cabang Anda. Gunakan nama lain.")
                     else:
                         pid = insert_patient(payload)
-                        st.success(f"Pasien baru berhasil disimpan dengan ID: {pid}")
 
-                        # --- TAMBAHAN: Auto-input diagnosis jika belum ada ---
                         cek_diag = run_df_branch("SELECT id FROM pwh.hemo_diagnoses WHERE patient_id = :pid", {"pid": pid})
                         if cek_diag.empty:
                             insert_diagnosis(pid, "Other", "Tidak diketahui", None, "Auto-input sistem")
-                        # -----------------------------------------------------
                         
+                        st.session_state["pat_success_msg"] = f"Pasien baru **{payload['full_name']}** berhasil disimpan dengan ID: {pid}."
                         fetch_all_wilayah_details.clear()
                         fetch_hmhi_branches.clear() 
                         get_all_patients_for_selection.clear()
+                        clear_session_state('pat_')
                         st.rerun()
 
         st.markdown("---")
@@ -1429,7 +1487,8 @@ if tab_pat:
         st.write("**Edit atau Hapus Data Pasien**")
         search_name_pat = st.text_input("Ketik nama pasien untuk diedit atau dihapus", key="search_name_pat")
         if st.button("Cari Pasien", key="search_pat_button"):
-            clear_session_state('patient_to_edit') 
+            clear_session_state('patient_to_edit')
+            clear_session_state('pat_')
             if search_name_pat:
                 results_df = run_df_branch("SELECT id, full_name, birth_date FROM pwh.patients WHERE full_name ILIKE :name", {"name": f"%{search_name_pat}%"})
                 if results_df.empty:
@@ -1451,12 +1510,11 @@ if tab_pat:
             options = {f"{row['full_name']} (Lahir: {row['birth_date']})": row['id'] for _, row in df_matches.iterrows()}
             selected_option = st.selectbox("Pilih pasien yang akan diedit/dihapus:", options.keys(), key="select_pat_box")
 
-            # Membuat kolom agar tombol Edit dan Hapus bisa bersebelahan
             c_edit, c_del, c_spacer = st.columns([1, 1, 2])
             with c_edit:
-                # 'if' di dalam 'with' juga harus menjorok ke dalam
                 if st.button("📝 Edit Pasien Ini", key="select_pat_button"):
                     selected_id = options[selected_option]
+                    clear_session_state('pat_')
                     set_editing_state('patient_to_edit', selected_id, 'pwh.patients')
                     clear_session_state('patient_matches')
                     st.rerun()
@@ -1465,50 +1523,48 @@ if tab_pat:
                 if st.button("❌ Hapus Pasien Ini", key="delete_pat_button"):
                     selected_id = options[selected_option]
                     try:
-                        # Panggil fungsi hapus yang baru dibuat
                         delete_patient(selected_id)
-                        st.success(f"Pasien dengan ID {selected_id} beserta seluruh data riwayatnya berhasil dihapus.")
+                        st.session_state["pat_success_msg"] = f"Pasien dengan ID {selected_id} beserta seluruh data riwayatnya berhasil dihapus."
                         clear_session_state('patient_matches')
-                        if st.session_state.get('patient_to_edit') == selected_id:
+                        if st.session_state.get('patient_to_edit', {}).get('id') == selected_id:
                             clear_session_state('patient_to_edit')
+                            clear_session_state('pat_')
                         st.rerun()
                     except Exception as e:
                         st.error(f"Gagal menghapus pasien ID {selected_id}: {e}")
 
         dfp = run_df_branch("""
-    SELECT
-        p.id,
-        p.full_name,
-        p.birth_place,
-        p.birth_date,
-        p.nik,
-        COALESCE(pa.age_years, EXTRACT(YEAR FROM age(CURRENT_DATE, p.birth_date))) AS age_years,
-        p.blood_group,
-        p.rhesus,
-        p.gender,
-        p.occupation,
-        p.education,
-        p.address,
-        p.village,
-        p.district,
-        p.phone,
-        p.province,
-        p.city,
-        p.cabang,
-        p.kota_cakupan,
-        p.created_at
-    FROM pwh.patients p
-    LEFT JOIN pwh.patient_age pa ON pa.id = p.id
-    ORDER BY p.full_name ASC;
-    """)
+            SELECT
+                p.id,
+                p.full_name,
+                p.birth_place,
+                p.birth_date,
+                p.nik,
+                COALESCE(pa.age_years, EXTRACT(YEAR FROM age(CURRENT_DATE, p.birth_date))) AS age_years,
+                p.blood_group,
+                p.rhesus,
+                p.gender,
+                p.occupation,
+                p.education,
+                p.address,
+                p.village,
+                p.district,
+                p.phone,
+                p.province,
+                p.city,
+                p.cabang,
+                p.kota_cakupan,
+                p.created_at
+            FROM pwh.patients p
+            LEFT JOIN pwh.patient_age pa ON pa.id = p.id
+            ORDER BY p.full_name ASC;
+        """)
         
         if not dfp.empty:
             dfp_display = dfp.copy()
             
-            # --- FIX: Hilangkan desimal pada kolom umur dengan casting ke Int64 ---
             if 'age_years' in dfp_display.columns:
                 dfp_display['age_years'] = pd.to_numeric(dfp_display['age_years'], errors='coerce').astype('Int64')
-            # -----------------------------------------------------------------------
             
             dfp_display['birth_place'] = dfp_display['birth_place'].apply(lambda x: '*****' if pd.notna(x) and str(x).strip() else x)
             dfp_display['birth_date'] = dfp_display['birth_date'].apply(lambda x: '*****' if pd.notna(x) else x)
@@ -1520,15 +1576,14 @@ if tab_pat:
             dfp_display.index.name = "No."
             
             st.write(f"Total Data Pasien (di cabang Anda): **{len(dfp_display)}**")
-            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
             styled_dfp = style_deceased_row(_alias_df(dfp_display, ALIAS_PATIENTS), dfp, 'id')
             st.dataframe(styled_dfp, use_container_width=True)
-            # --- END PERUBAHAN ---
         else:
             st.info("Belum ada data pasien (di cabang Anda).")
 
 # ==============================================================================
-# Diagnosis
+# Tab 2: Diagnosis
+# ==============================================================================
 if tab_diag:
     with tab_diag:
         st.subheader("🧬 Tambah Data Diagnosis Pasien")
@@ -1568,7 +1623,7 @@ if tab_diag:
             
             diagnosed_on_val = pd.to_datetime(diag_data.get('diagnosed_on')).date() if pd.notna(diag_data.get('diagnosed_on')) else None
             diagnosed_on = st.date_input("Tanggal Diagnosis", value=diagnosed_on_val, format="YYYY-MM-DD", min_value=date(1920, 1, 1))
-            source = st.text_input("Sumber (opsional)", value=diag_data.get('source', ''))
+            source = st.text_input("Sumber (opsional)", value=diag_data.get('source') or '')
             
             sdiag_label = "Perbarui Diagnosis" if diag_data else "Simpan Diagnosis Baru"
             sdiag = st.form_submit_button(f"💾 {sdiag_label}", type="primary")
@@ -1641,7 +1696,6 @@ if tab_diag:
                 else:
                     st.info(f"Ditemukan {len(results_df)} riwayat diagnosis. Silakan pilih satu untuk diedit/dihapus.")
                     st.session_state.diag_matches = results_df
-                    
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
                 st.session_state.diag_selected_patient_name = ""
@@ -1687,14 +1741,14 @@ if tab_diag:
             df_diag_display.index = range(1, len(df_diag_display) + 1)
             df_diag_display.index.name = "No."
             st.write(f"Total Data Diagnosis: **{len(df_diag_display)}**")
-            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
             styled_df_diag = style_deceased_row(_alias_df(df_diag_display, ALIAS_DIAG), df_diag, 'patient_id')
             st.dataframe(styled_df_diag, use_container_width=True)
-            # --- END PERUBAHAN ---
         else:
             st.info("Tidak ada data diagnosis untuk ditampilkan. Cari nama pasien di atas untuk memfilter.")
 
-# ==================== Inhibitor ====================
+# ==============================================================================
+# Tab 3: Inhibitor
+# ==============================================================================
 if tab_inh:
     with tab_inh:
         st.subheader("🧪 Tambah Data Inhibitor (BU)")
@@ -1721,10 +1775,10 @@ if tab_inh:
         with st.form("inh::form", clear_on_submit=False):
             factor_idx = get_safe_index(INHIB_FACTORS, inh_data.get('factor'))
             factor = st.selectbox("Faktor", INHIB_FACTORS, index=factor_idx)
-            titer_bu = st.number_input("Titer (BU)", min_value=0.0, step=0.1, value=float(inh_data.get('titer_bu', 0.0)))
+            titer_bu = st.number_input("Titer (BU)", min_value=0.0, step=0.1, value=float(inh_data.get('titer_bu') or 0.0))
             measured_on_val = pd.to_datetime(inh_data.get('measured_on')).date() if pd.notna(inh_data.get('measured_on')) else None
             measured_on = st.date_input("Tanggal Ukur", value=measured_on_val, format="YYYY-MM-DD", min_value=date(1920, 1, 1))
-            lab = st.text_input("Lab (opsional)", value=inh_data.get('lab', ''))
+            lab = st.text_input("Lab (opsional)", value=inh_data.get('lab') or '')
             sinh_label = "Perbarui Riwayat" if inh_data else "Simpan Riwayat Baru"
             sinh = st.form_submit_button(f"💾 {sinh_label}", type="primary")
 
@@ -1766,7 +1820,6 @@ if tab_inh:
                 else:
                     st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu untuk diedit/dihapus.")
                     st.session_state.inh_matches = results_df
-                    
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
                 st.session_state.inh_selected_patient_name = ""
@@ -1812,14 +1865,14 @@ if tab_inh:
             df_inh_display.index = range(1, len(df_inh_display) + 1)
             df_inh_display.index.name = "No."
             st.write(f"Total Data Inhibitor: **{len(df_inh_display)}**")
-            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
             styled_df_inh = style_deceased_row(_alias_df(df_inh_display, ALIAS_INH), df_inh, 'patient_id')
             st.dataframe(styled_df_inh, use_container_width=True)
-            # --- END PERUBAHAN ---
         else:
             st.info("Tidak ada data inhibitor untuk ditampilkan.")
 
-# Virus Tests
+# ==============================================================================
+# Tab 4: Virus Tests
+# ==============================================================================
 if tab_virus:
     with tab_virus:
         st.subheader("🧫 Tambah Data Virus Tests")
@@ -1850,7 +1903,7 @@ if tab_virus:
             result = st.selectbox("Hasil", TEST_RESULTS, index=result_idx)
             tested_on_val = pd.to_datetime(virus_data.get('tested_on')).date() if pd.notna(virus_data.get('tested_on')) else None
             tested_on = st.date_input("Tanggal Tes", value=tested_on_val, format="YYYY-MM-DD", min_value=date(1920, 1, 1))
-            lab = st.text_input("Lab (opsional)", value=virus_data.get('lab', ''))
+            lab = st.text_input("Lab (opsional)", value=virus_data.get('lab') or '')
             svirus_label = "Perbarui Hasil Tes" if virus_data else "Simpan Hasil Tes Baru"
             svirus = st.form_submit_button(f"💾 {svirus_label}", type="primary")
 
@@ -1892,7 +1945,6 @@ if tab_virus:
                 else:
                     st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu untuk diedit/dihapus.")
                     st.session_state.virus_matches = results_df
-                    
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
                 st.session_state.virus_selected_patient_name = ""
@@ -1936,21 +1988,17 @@ if tab_virus:
         if not df_virus.empty:
             df_virus_display = df_virus.copy()
             df_virus_display['result'] = '*****'
-            
             df_virus_display = df_virus_display.drop(columns=['id', 'patient_id'], errors='ignore')
             df_virus_display.index = range(1, len(df_virus_display) + 1)
             df_virus_display.index.name = "No."
             st.write(f"Total Data Tes Virus: **{len(df_virus_display)}**")
-            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
             styled_df_virus = style_deceased_row(_alias_df(df_virus_display, ALIAS_VIRUS), df_virus, 'patient_id')
             st.dataframe(styled_df_virus, use_container_width=True)
-            # --- END PERUBAHAN ---
         else:
             st.info("Tidak ada data tes virus untuk ditampilkan.")
 
-
 # ==============================================================================
-# Rumah Sakit Penangan
+# Tab 5: Rumah Sakit Penangan
 # ==============================================================================
 if tab_hospital:
     with tab_hospital:
@@ -1987,7 +2035,7 @@ if tab_hospital:
                 visit_date_val = pd.to_datetime(hosp_data.get('date_of_visit')).date() if pd.notna(hosp_data.get('date_of_visit')) else None
                 date_of_visit = st.date_input("Tanggal Kunjungan", value=visit_date_val, format="YYYY-MM-DD", min_value=date(1920, 1, 1))
             with col_doc:
-                doctor_in_charge = st.text_input("DPJP", value=hosp_data.get('doctor_in_charge', ''))
+                doctor_in_charge = st.text_input("DPJP", value=hosp_data.get('doctor_in_charge') or '')
 
             col1, col2 = st.columns(2)
             with col1:
@@ -1997,11 +2045,11 @@ if tab_hospital:
                 cserv_idx = get_safe_index(CARE_SERVICES, hosp_data.get('care_services'))
                 care_services = st.selectbox("Layanan Rawat", CARE_SERVICES, index=cserv_idx)
             col3, col4 = st.columns(2)
-            with col3: frequency = st.text_input("Frekuensi", placeholder="Contoh: 1x Seminggu", value=hosp_data.get('frequency', ''))
-            with col4: dose = st.text_input("Dosis", placeholder="Contoh: 1000 IU", value=hosp_data.get('dose', ''))
+            with col3: frequency = st.text_input("Frekuensi", placeholder="Contoh: 1x Seminggu", value=hosp_data.get('frequency') or '')
+            with col4: dose = st.text_input("Dosis", placeholder="Contoh: 1000 IU", value=hosp_data.get('dose') or '')
             prod_idx = get_safe_index(PRODUCTS, hosp_data.get('product'))
             product = st.selectbox("Produk", PRODUCTS, index=prod_idx) 
-            merk = st.text_input("Merk", value=hosp_data.get('merk', ''))
+            merk = st.text_input("Merk", value=hosp_data.get('merk') or '')
             shosp_label = "Perbarui Data" if hosp_data else "Simpan Data Baru"
             shosp = st.form_submit_button(f"💾 {shosp_label}", type="primary")
 
@@ -2054,7 +2102,6 @@ if tab_hospital:
                 else:
                     st.info(f"Ditemukan {len(results_df)} riwayat. Silakan pilih satu untuk diedit/dihapus.")
                     st.session_state.hosp_matches = results_df
-                    
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
                 st.session_state.hosp_selected_patient_name = ""
@@ -2068,14 +2115,12 @@ if tab_hospital:
             selected_option = st.selectbox("Pilih riwayat penanganan:", options.keys(), key="select_hosp_box")
             
             c_edit, c_del, c_spacer = st.columns([1, 1, 2]) 
-            
             with c_edit:
                 if st.button("📝 Edit Riwayat Ini", key="select_hosp_button"): 
                     selected_id = options[selected_option]
                     set_editing_state('hosp_to_edit', selected_id, 'pwh.treatment_hospital')
                     clear_session_state('hosp_matches')
                     st.rerun()
-            
             with c_del:
                 if st.button("❌ Hapus Riwayat Ini", key="delete_hosp_button"):
                     selected_id = options[selected_option]
@@ -2102,17 +2147,17 @@ if tab_hospital:
             df_th_display.index = range(1, len(df_th_display) + 1)
             df_th_display.index.name = "No."
             st.write(f"Total Data Penanganan: **{len(df_th_display)}**")
-            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
             styled_df_th = style_deceased_row(_alias_df(df_th_display, ALIAS_HOSPITAL), df_th, 'patient_id')
             st.dataframe(styled_df_th, use_container_width=True)
-            # --- END PERUBAHAN ---
         else:
             st.info("Tidak ada data penanganan RS untuk ditampilkan.")
 
-# Kematian
+# ==============================================================================
+# Tab 6: Kematian
+# ==============================================================================
 if tab_death:
     with tab_death:
-        st.subheader("⚰️ Tambah Data Data Kematian")
+        st.subheader("⚰️ Tambah Data Kematian")
 
         death_data = st.session_state.get('death_to_edit', {})
         if death_data:
@@ -2134,7 +2179,7 @@ if tab_death:
         )
 
         with st.form("death::form", clear_on_submit=False):
-            cause_of_death = st.text_area("Penyebab Kematian", value=death_data.get('cause_of_death', ''))
+            cause_of_death = st.text_area("Penyebab Kematian", value=death_data.get('cause_of_death') or '')
             current_year = date.today().year
             year_of_death_val = death_data.get('year_of_death')
             if year_of_death_val:
@@ -2143,7 +2188,7 @@ if tab_death:
                 except (ValueError, TypeError):
                     year_of_death_val = current_year 
             else:
-                 year_of_death_val = current_year 
+                year_of_death_val = current_year 
 
             year_of_death = st.number_input("Tahun Kematian", min_value=1900, max_value=current_year, value=year_of_death_val, step=1)
             
@@ -2189,18 +2234,17 @@ if tab_death:
                 if results_df.empty:
                     st.warning("Data kematian tidak ditemukan (di cabang Anda).")
                 else:
-                    st.info(f"Ditemukan 1 data kematian. Pilih untuk edit/hapus.")
+                    st.info("Ditemukan data kematian. Pilih untuk edit/hapus.")
                     st.session_state.death_matches = results_df
-                
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
                 st.session_state.death_selected_patient_name = ""
         
         if 'death_matches' in st.session_state and not st.session_state.death_matches.empty:
             df_matches = st.session_state.death_matches
-            row = df_matches.iloc[0]
             options = {
                 f"ID: {row['id']} - {row['full_name']} (Tahun: {row['year_of_death']})": row['id']
+                for _, row in df_matches.iterrows()
             }
             
             selected_option = st.selectbox("Pilih data kematian:", options.keys(), key="select_death_box")
@@ -2238,15 +2282,14 @@ if tab_death:
             df_death_display.index = range(1, len(df_death_display) + 1)
             df_death_display.index.name = "No."
             st.write(f"Total Data Kematian: **{len(df_death_display)}**")
-            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
             styled_df_death = style_deceased_row(_alias_df(df_death_display, ALIAS_DEATH), df_death, 'patient_id')
             st.dataframe(styled_df_death, use_container_width=True)
-            # --- END PERUBAHAN ---
         else:
             st.info("Tidak ada data kematian untuk ditampilkan.")
 
-
-# Kontak
+# ==============================================================================
+# Tab 7: Kontak
+# ==============================================================================
 if tab_contacts:
     with tab_contacts:
         st.subheader("👨‍👩‍👧 Tambah Data Kontak")
@@ -2273,8 +2316,8 @@ if tab_contacts:
         with st.form("contact::form", clear_on_submit=False):
             relation_idx = get_safe_index(RELATIONS, cont_data.get('relation'))
             relation = st.selectbox("Relasi", RELATIONS, index=relation_idx)
-            name = st.text_input("Nama Kontak*", value=cont_data.get('name', ''))
-            phone = st.text_input("No. Telp", value=cont_data.get('phone', ''))
+            name = st.text_input("Nama Kontak*", value=cont_data.get('name') or '')
+            phone = st.text_input("No. Telp", value=cont_data.get('phone') or '')
             is_primary = st.checkbox("Kontak Utama?", value=bool(cont_data.get('is_primary', False)))
             scont_label = "Perbarui Kontak" if cont_data else "Simpan Kontak Baru"
             scont = st.form_submit_button(f"💾 {scont_label}", type="primary")
@@ -2322,7 +2365,6 @@ if tab_contacts:
                 else:
                     st.info(f"Ditemukan {len(results_df)} kontak. Silakan pilih satu untuk diedit/dihapus.")
                     st.session_state.contact_matches = results_df
-                    
             else:
                 st.warning("Silakan masukkan nama untuk dicari.")
                 st.session_state.cont_selected_patient_name = ""
@@ -2368,14 +2410,14 @@ if tab_contacts:
             df_contacts_display.index = range(1, len(df_contacts_display) + 1)
             df_contacts_display.index.name = "No."
             st.write(f"Total Data Kontak: **{len(df_contacts_display)}**")
-            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
             styled_df_contacts = style_deceased_row(_alias_df(df_contacts_display, ALIAS_CONTACTS), df_contacts, 'patient_id')
             st.dataframe(styled_df_contacts, use_container_width=True)
-            # --- END PERUBAHAN ---
         else:
             st.info("Tidak ada data kontak untuk ditampilkan.")
 
-# Ringkasan
+# ==============================================================================
+# Tab 8: Ringkasan
+# ==============================================================================
 if tab_view:
     with tab_view:
         st.subheader("📄 Ringkasan Pasien") 
@@ -2395,21 +2437,19 @@ if tab_view:
                 if col in df_summary_display.columns:
                     df_summary_display[col] = '*****'
 
-            # --- FIX: Hilangkan desimal umur di tab Ringkasan ---
             if 'Umur (tahun)' in df_summary_display.columns:
                 df_summary_display['Umur (tahun)'] = pd.to_numeric(df_summary_display['Umur (tahun)'], errors='coerce').astype('Int64')
-            # ----------------------------------------------------
             df_summary_display = df_summary_display.drop(columns=['id'], errors='ignore')
             df_summary_display.index = range(1, len(df_summary_display) + 1)
             df_summary_display.index.name = "No."
             st.write(f"Total Data Pasien (di cabang Anda): **{len(df_summary_display)}**")
-            # --- PERUBAHAN DI SINI: Implementasi pewarnaan merah ---
             styled_df_summary = style_deceased_row(_alias_df(df_summary_display, ALIAS_SUMMARY), df, 'id')
             st.dataframe(styled_df_summary, use_container_width=True)
-            # --- END PERUBAHAN ---
             st.caption("View ini mengambil hasil terbaru per pasien (diagnosis A/B/vWD, inhibitor FVIII/FIX, dan tes HBsAg/Anti-HCV/HIV).")
 
-# Export
+# ==============================================================================
+# Tab 9: Export
+# ==============================================================================
 if tab_export:
     with tab_export:
         st.subheader("⬇️ Export Excel (semua tab)")
